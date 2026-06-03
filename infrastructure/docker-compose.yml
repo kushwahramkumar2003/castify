@@ -1,0 +1,365 @@
+# =============================================================================
+# Castify — Infrastructure docker-compose
+# =============================================================================
+# Starts ONLY the backing services needed for local development.
+# Application services (auth-service, rtmp-ingest, etc.) are run via Turborepo:
+#   turbo dev
+#
+# ── Apple Silicon (M-series) notes ──────────────────────────────────────────
+# Most images are multi-arch (linux/arm64 native). Exceptions:
+#   nginx-rtmp    → built from custom Dockerfile (native ARM64, fast on M-chip)
+#   redis-commander → platform: linux/amd64 (Rosetta OK for a UI tool)
+# On first run nginx-rtmp builds from source (~60-90s). Subsequent starts are
+# instant because Docker caches the compiled layer.
+# ────────────────────────────────────────────────────────────────────────────
+#
+# Usage:
+#   docker compose up -d          — start all infra in background
+#   docker compose down -v        — stop everything and remove volumes
+#   docker compose ps             — check health of all services
+#   docker compose logs -f kafka  — tail a specific service
+#
+# Before writing any service code, confirm every service is healthy:
+#   PostgreSQL  → psql -h localhost -U castify -d castify
+#   Redis       → redis-cli ping  (expects: PONG)
+#   Kafka       → see scripts/kafka-topics.sh
+#   MinIO       → open http://localhost:9001  (castify / castify123)
+#   ClickHouse  → curl http://localhost:8123/ping  (expects: Ok.)
+#   Nginx RTMP  → curl http://localhost:8080/health
+# =============================================================================
+
+name: castify-infra
+
+# ---------------------------------------------------------------------------
+# Shared network — all services on a single bridge so they can reach each
+# other by service name (e.g. "postgres", "kafka", "redis").
+# ---------------------------------------------------------------------------
+networks:
+  castify-net:
+    driver: bridge
+
+# ---------------------------------------------------------------------------
+# Named volumes — persisted across container restarts so you don't lose
+# data every time you stop the stack.
+# ---------------------------------------------------------------------------
+volumes:
+  postgres_data:
+  redis_data:
+  kafka_data:
+  zookeeper_data:
+  zookeeper_log:
+  minio_data:
+  clickhouse_data:
+  nginx_hls_segments:   # shared between nginx and hls-packager (dev only)
+
+services:
+
+  # =========================================================================
+  # PostgreSQL 16
+  # Used by: auth-service, metadata-service, chat-service,
+  #          moderation-service, vod-service, notification-service
+  # =========================================================================
+  postgres:
+    image: postgres:16-alpine
+    container_name: castify-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: castify
+      POSTGRES_PASSWORD: castify
+      POSTGRES_DB: castify
+      # Tune for local dev — not for production
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro  # optional SQL seed files
+    networks:
+      - castify-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U castify -d castify"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  # =========================================================================
+  # Redis 7
+  # Used by: chat-service (pub/sub + history), presence-service (TTL keys),
+  #          reaction-service (batch counters), moderation-service (hot cache),
+  #          vod-service (BullMQ), all services (BullMQ job queues)
+  # =========================================================================
+  redis:
+    image: redis:7-alpine
+    container_name: castify-redis
+    restart: unless-stopped
+    command: >
+      redis-server
+      --appendonly yes
+      --appendfsync everysec
+      --maxmemory 512mb
+      --maxmemory-policy allkeys-lru
+      --save 60 1
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - castify-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # =========================================================================
+  # Zookeeper 3.8 — required by Kafka for broker coordination
+  # In production you would use KRaft (Kafka without Zookeeper) but for local
+  # dev the classic setup is simpler to reason about.
+  # =========================================================================
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.6.1
+    container_name: castify-zookeeper
+    restart: unless-stopped
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+      ZOOKEEPER_SYNC_LIMIT: 2
+    ports:
+      - "2181:2181"
+    volumes:
+      - zookeeper_data:/var/lib/zookeeper/data
+      - zookeeper_log:/var/lib/zookeeper/log
+    networks:
+      - castify-net
+    healthcheck:
+      # nc -z (port-open check) is reliable across all nc variants on ARM64.
+      # The ruok/imok echo check requires GNU netcat which isn't always present.
+      test: ["CMD-SHELL", "nc -z localhost 2181 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  # =========================================================================
+  # Apache Kafka 3.6 (via Confluent Platform image)
+  # Used by: rtmp-ingest, transcoding-service, hls-packager, analytics-service,
+  #          notification-service, presence-service, chat-service
+  #
+  # Topics (created automatically on first produce or via kafka-topics.sh):
+  #   stream.started        stream.ended          video.segment.ready
+  #   chat.message.sent     viewer.joined         viewer.left
+  #   clip.requested
+  # =========================================================================
+  kafka:
+    image: confluentinc/cp-kafka:7.6.1
+    container_name: castify-kafka
+    restart: unless-stopped
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      # Two listeners:
+      #   PLAINTEXT       — used by containers on castify-net (service name "kafka")
+      #   PLAINTEXT_HOST  — used by processes on the host machine (localhost:9092)
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:29092,PLAINTEXT_HOST://0.0.0.0:9092
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_NUM_PARTITIONS: 3
+      KAFKA_DEFAULT_REPLICATION_FACTOR: 1
+      KAFKA_LOG_RETENTION_HOURS: 24        # keep events for 24 h locally
+      KAFKA_LOG_SEGMENT_BYTES: 1073741824  # 1 GB max segment size
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+      # Reduce memory footprint for local dev
+      KAFKA_HEAP_OPTS: "-Xmx512m -Xms256m"
+    ports:
+      - "9092:9092"    # host access
+      - "29092:29092"  # inter-container access (used by other services in the network)
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    networks:
+      - castify-net
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-topics --bootstrap-server localhost:9092 --list"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+
+  # =========================================================================
+  # Kafka UI — web dashboard for browsing topics, consumer groups, messages
+  # Open: http://localhost:9000
+  # =========================================================================
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: castify-kafka-ui
+    restart: unless-stopped
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      KAFKA_CLUSTERS_0_NAME: castify-local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+      KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper:2181
+      SERVER_PORT: 9000
+    ports:
+      - "9000:9000"
+    networks:
+      - castify-net
+
+  # =========================================================================
+  # MinIO — S3-compatible object storage
+  # Used by: hls-packager (HLS segments upload), vod-service (VOD stitching)
+  #
+  # API:       http://localhost:9000  (S3-compatible endpoint for services)
+  # Console:   http://localhost:9001  (web UI — create buckets, browse files)
+  # Creds:     castify / castify123
+  #
+  # Buckets to create on first boot (or via init script):
+  #   hls-segments   — live .ts and .m3u8 files
+  #   vod-archive    — stitched VOD playlists and clips
+  # =========================================================================
+  minio:
+    image: minio/minio:latest
+    container_name: castify-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: castify
+      MINIO_ROOT_PASSWORD: castify123
+      MINIO_SITE_REGION: us-east-1   # match AWS S3 SDK defaults
+    ports:
+      - "9100:9000"   # S3 API  (mapped to 9100 to avoid clash with kafka-ui)
+      - "9001:9001"   # Console UI
+    volumes:
+      - minio_data:/data
+    networks:
+      - castify-net
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  # MinIO bucket init — runs once, creates required buckets, then exits
+  minio-init:
+    image: minio/mc:latest
+    container_name: castify-minio-init
+    restart: on-failure
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+        mc alias set local http://minio:9000 castify castify123;
+        mc mb --ignore-existing local/hls-segments;
+        mc mb --ignore-existing local/vod-archive;
+        mc anonymous set download local/hls-segments;
+        echo 'MinIO buckets ready';
+      "
+    networks:
+      - castify-net
+
+  # =========================================================================
+  # ClickHouse 24 — columnar database for time-series analytics
+  # Used by: analytics-service (write) and creator dashboard queries (read)
+  #
+  # HTTP interface: http://localhost:8123
+  # Native TCP:     localhost:9009
+  # Default user:   default (no password in dev)
+  # =========================================================================
+  clickhouse:
+    image: clickhouse/clickhouse-server:24-alpine
+    container_name: castify-clickhouse
+    restart: unless-stopped
+    environment:
+      CLICKHOUSE_DB: castify_analytics
+      CLICKHOUSE_USER: castify
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
+      CLICKHOUSE_PASSWORD: castify
+    ports:
+      - "8123:8123"   # HTTP interface (curl / HTTP clients)
+      - "9009:9000"   # Native TCP (ClickHouse client / drivers)
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+      - ./clickhouse/config:/etc/clickhouse-server/config.d:ro   # optional overrides
+      - ./clickhouse/users:/etc/clickhouse-server/users.d:ro
+    networks:
+      - castify-net
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8123/ping | grep -q Ok."]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  # =========================================================================
+  # Nginx + RTMP module — built from source (infrastructure/nginx/Dockerfile)
+  #
+  # Why custom build instead of alfg/nginx-rtmp:
+  #   alfg/nginx-rtmp is amd64-only. On Apple Silicon (M-series) it would run
+  #   under Rosetta on the critical RTMP ingest path — bad for performance.
+  #   Building natively produces a proper linux/arm64 binary. The M5 compiles
+  #   nginx + rtmp-module in ~60-90s on first run; subsequent starts are
+  #   instant (Docker layer cache).
+  #
+  # Port 1935 — RTMP ingest  →  rtmp://localhost:1935/live/<stream-key>
+  # Port 8080 — HLS origin   →  http://localhost:8080/hls/<stream-key>/index.m3u8
+  #
+  # Reload config without restart:
+  #   docker exec castify-nginx-rtmp nginx -s reload
+  # =========================================================================
+  nginx-rtmp:
+    build:
+      context: ./nginx
+      dockerfile: Dockerfile
+    container_name: castify-nginx-rtmp
+    restart: unless-stopped
+    ports:
+      - "1935:1935"   # RTMP — OBS stream target
+      - "8080:8080"   # HLS  — viewer segment/manifest endpoint
+    volumes:
+      # Shared HLS segment store — hls-packager writes here; nginx serves from here
+      - nginx_hls_segments:/tmp/hls
+    networks:
+      - castify-net
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  # =========================================================================
+  # Redis Commander — lightweight web UI for browsing Redis keys
+  # Open: http://localhost:8081
+  #
+  # platform: linux/amd64 — this image has no ARM64 build; Docker Desktop
+  # runs it transparently via Rosetta 2. Acceptable for a dev UI tool.
+  # =========================================================================
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    platform: linux/amd64
+    container_name: castify-redis-ui
+    restart: unless-stopped
+    depends_on:
+      - redis
+    environment:
+      REDIS_HOSTS: local:redis:6379
+    ports:
+      - "8081:8081"
+    networks:
+      - castify-net
+

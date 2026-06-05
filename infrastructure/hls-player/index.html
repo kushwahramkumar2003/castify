@@ -1,0 +1,583 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Castify — HLS Player</title>
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.15/dist/hls.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #0d0d14;
+      --surface:   #16161f;
+      --surface2:  #1e1e2e;
+      --border:    #2a2a3d;
+      --accent:    #7c3aed;
+      --accent2:   #a855f7;
+      --green:     #22c55e;
+      --red:       #ef4444;
+      --yellow:    #f59e0b;
+      --text:      #e2e2f0;
+      --muted:     #6b6b8a;
+      --radius:    12px;
+    }
+
+    body {
+      font-family: 'Inter', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 24px 16px 48px;
+    }
+
+    /* ── Header ─────────────────────────────── */
+    header {
+      width: 100%;
+      max-width: 960px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 32px;
+    }
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .logo-icon {
+      width: 36px; height: 36px;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 18px;
+    }
+    .logo h1 { font-size: 1.25rem; font-weight: 700; letter-spacing: -0.02em; }
+    .logo span { color: var(--accent2); }
+    .badge {
+      margin-left: auto;
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 0.72rem;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+    .badge-dev { background: rgba(124,58,237,0.2); color: var(--accent2); border: 1px solid rgba(124,58,237,0.3); }
+
+    /* ── Main layout ─────────────────────────── */
+    main {
+      width: 100%;
+      max-width: 960px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    /* ── URL input card ──────────────────────── */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px;
+    }
+    .card-title {
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-bottom: 12px;
+    }
+
+    .url-row {
+      display: flex;
+      gap: 10px;
+    }
+    #stream-url {
+      flex: 1;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 14px;
+      color: var(--text);
+      font-family: 'Inter', monospace;
+      font-size: 0.85rem;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    #stream-url:focus { border-color: var(--accent); }
+    #stream-url::placeholder { color: var(--muted); }
+
+    button {
+      padding: 10px 20px;
+      border-radius: 8px;
+      font-family: inherit;
+      font-size: 0.875rem;
+      font-weight: 600;
+      cursor: pointer;
+      border: none;
+      transition: all 0.15s;
+    }
+    .btn-primary {
+      background: var(--accent);
+      color: #fff;
+    }
+    .btn-primary:hover { background: var(--accent2); transform: translateY(-1px); }
+    .btn-secondary {
+      background: var(--surface2);
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+    .btn-secondary:hover { border-color: var(--accent); }
+
+    /* ── Quick presets ───────────────────────── */
+    .presets {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 12px;
+    }
+    .preset-btn {
+      padding: 5px 12px;
+      font-size: 0.78rem;
+      font-weight: 500;
+      border-radius: 6px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--muted);
+      cursor: pointer;
+      font-family: monospace;
+      transition: all 0.15s;
+    }
+    .preset-btn:hover { border-color: var(--accent2); color: var(--accent2); }
+
+    /* ── Video area ──────────────────────────── */
+    .video-wrapper {
+      position: relative;
+      background: #000;
+      border-radius: var(--radius);
+      overflow: hidden;
+      aspect-ratio: 16/9;
+      border: 1px solid var(--border);
+    }
+    video {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+    .video-overlay {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      background: rgba(0,0,0,0.7);
+      transition: opacity 0.3s;
+    }
+    .video-overlay.hidden { opacity: 0; pointer-events: none; }
+    .overlay-icon { font-size: 3rem; }
+    .overlay-text { font-size: 1rem; font-weight: 500; color: var(--muted); }
+
+    /* ── Stats row ───────────────────────────── */
+    .stats-row {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 12px;
+    }
+    .stat {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 14px 16px;
+    }
+    .stat-label {
+      font-size: 0.7rem;
+      font-weight: 600;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-bottom: 6px;
+    }
+    .stat-value {
+      font-size: 1.1rem;
+      font-weight: 700;
+      color: var(--text);
+    }
+    .stat-value.green { color: var(--green); }
+    .stat-value.yellow { color: var(--yellow); }
+    .stat-value.red { color: var(--red); }
+
+    /* ── Quality selector ────────────────────── */
+    .quality-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .quality-row label { font-size: 0.8rem; color: var(--muted); font-weight: 500; }
+    .quality-btn {
+      padding: 5px 14px;
+      font-size: 0.8rem;
+      border-radius: 6px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--muted);
+    }
+    .quality-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+    .quality-btn:hover:not(.active) { border-color: var(--accent2); color: var(--accent2); }
+
+    /* ── Log ─────────────────────────────────── */
+    .log {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px;
+      font-family: monospace;
+      font-size: 0.78rem;
+      color: var(--muted);
+      height: 150px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column-reverse;
+      gap: 2px;
+    }
+    .log-entry { display: flex; gap: 10px; }
+    .log-time { color: #3b3b55; white-space: nowrap; }
+    .log-msg.ok  { color: var(--green); }
+    .log-msg.err { color: var(--red); }
+    .log-msg.info { color: var(--text); }
+
+    /* ── Info box ────────────────────────────── */
+    .info-box {
+      background: rgba(124,58,237,0.08);
+      border: 1px solid rgba(124,58,237,0.25);
+      border-radius: var(--radius);
+      padding: 16px;
+      font-size: 0.82rem;
+      line-height: 1.7;
+      color: var(--muted);
+    }
+    .info-box code {
+      background: var(--surface2);
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-family: monospace;
+      color: var(--accent2);
+      font-size: 0.88em;
+    }
+    .info-box strong { color: var(--text); }
+
+    /* Scrollbar */
+    ::-webkit-scrollbar { width: 4px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <div class="logo-icon">🎥</div>
+    <h1>Casti<span>fy</span> Player</h1>
+  </div>
+  <span class="badge badge-dev">Dev Tool</span>
+</header>
+
+<main>
+
+  <!-- URL input -->
+  <div class="card">
+    <div class="card-title">HLS Stream URL</div>
+    <div class="url-row">
+      <input id="stream-url" type="text"
+        placeholder="http://localhost:9100/hls-segments/live/<stream-key>/master.m3u8"
+        spellcheck="false">
+      <button class="btn-primary" onclick="loadStream()">▶ Play</button>
+      <button class="btn-secondary" onclick="stopStream()">■ Stop</button>
+    </div>
+    <div class="presets">
+      <span style="font-size:0.75rem;color:var(--muted);padding:5px 0;align-self:center">Quick load:</span>
+      <button class="preset-btn" onclick="setPreset('master')">master.m3u8 (ABR)</button>
+      <button class="preset-btn" onclick="setPreset('720p')">720p only</button>
+      <button class="preset-btn" onclick="setPreset('480p')">480p only</button>
+      <button class="preset-btn" onclick="setPreset('360p')">360p only</button>
+    </div>
+  </div>
+
+  <!-- Video player -->
+  <div class="video-wrapper">
+    <video id="video" controls autoplay muted playsinline></video>
+    <div class="video-overlay" id="overlay">
+      <div class="overlay-icon">📡</div>
+      <div class="overlay-text">Enter a stream URL above and press Play</div>
+    </div>
+  </div>
+
+  <!-- Quality picker -->
+  <div class="card">
+    <div class="card-title">Quality</div>
+    <div class="quality-row" id="quality-row">
+      <label>Auto (ABR)</label>
+      <button class="quality-btn active" onclick="setQuality(-1)" id="q-auto">Auto</button>
+      <!-- Dynamic quality buttons injected by JS -->
+    </div>
+  </div>
+
+  <!-- Stats -->
+  <div class="stats-row">
+    <div class="stat">
+      <div class="stat-label">Status</div>
+      <div class="stat-value" id="stat-status">Idle</div>
+    </div>
+    <div class="stat">
+      <div class="stat-label">Level</div>
+      <div class="stat-value" id="stat-level">—</div>
+    </div>
+    <div class="stat">
+      <div class="stat-label">Buffer (s)</div>
+      <div class="stat-value" id="stat-buffer">—</div>
+    </div>
+    <div class="stat">
+      <div class="stat-label">Bitrate (kbps)</div>
+      <div class="stat-value" id="stat-bitrate">—</div>
+    </div>
+    <div class="stat">
+      <div class="stat-label">Dropped Frames</div>
+      <div class="stat-value" id="stat-dropped">—</div>
+    </div>
+    <div class="stat">
+      <div class="stat-label">Latency (s)</div>
+      <div class="stat-value" id="stat-latency">—</div>
+    </div>
+  </div>
+
+  <!-- Event log -->
+  <div class="card">
+    <div class="card-title">Event Log</div>
+    <div class="log" id="event-log"></div>
+  </div>
+
+  <!-- Instructions -->
+  <div class="info-box">
+    <strong>How to use:</strong><br>
+    Start OBS → point to <code>rtmp://localhost:1935/live</code> with stream key <code>local-dev-key-streamer-01</code><br>
+    Start <code>rtmp-ingest</code> + <code>transcoding-service</code>, then press one of the quick-load buttons above.<br><br>
+    <strong>Stream URL via nginx proxy (CORS safe):</strong><br>
+    <code>http://localhost:8080/minio/hls-segments/live/local-dev-key-streamer-01/master.m3u8</code><br><br>
+    <strong>Or direct MinIO (no CORS):</strong><br>
+    <code>http://localhost:9100/hls-segments/live/local-dev-key-streamer-01/master.m3u8</code><br><br>
+    <strong>Force a specific quality track:</strong><br>
+    <code>http://localhost:8080/minio/hls-segments/live/local-dev-key-streamer-01/720p/index.m3u8</code><br><br>
+    <strong>Note:</strong> The player uses hls.js — works in Chrome, Firefox, Edge, and Safari 14+.
+    Safari 13 and below support HLS natively via the <code>&lt;video&gt;</code> element.
+  </div>
+
+</main>
+
+<script>
+const DEFAULT_STREAM_KEY = "local-dev-key-streamer-01";
+// Route through nginx /minio proxy (port 8080, same origin) instead of
+// direct MinIO (port 9100). nginx adds CORS headers so the browser doesn't
+// block the requests. Both this page and MinIO content come from port 8080.
+const MINIO_BASE = "http://localhost:8080/minio/hls-segments/live";
+
+let hls = null;
+const video = document.getElementById("video");
+const overlay = document.getElementById("overlay");
+const log = document.getElementById("event-log");
+
+// ── Logging ─────────────────────────────────────────────────────────────────
+function appendLog(msg, type = "info") {
+  const now = new Date().toLocaleTimeString("en-GB", { hour12: false });
+  const entry = document.createElement("div");
+  entry.className = "log-entry";
+  entry.innerHTML = `<span class="log-time">${now}</span><span class="log-msg ${type}">${msg}</span>`;
+  log.prepend(entry);
+  // Keep max 100 lines
+  while (log.children.length > 100) log.lastChild.remove();
+}
+
+// ── Presets ──────────────────────────────────────────────────────────────────
+function setPreset(quality) {
+  const input = document.getElementById("stream-url");
+  if (quality === "master") {
+    input.value = `${MINIO_BASE}/${DEFAULT_STREAM_KEY}/master.m3u8`;
+  } else {
+    input.value = `${MINIO_BASE}/${DEFAULT_STREAM_KEY}/${quality}/index.m3u8`;
+  }
+}
+
+// ── Quality ──────────────────────────────────────────────────────────────────
+function setQuality(level) {
+  if (!hls) return;
+  hls.currentLevel = level;
+  document.querySelectorAll(".quality-btn").forEach(b => b.classList.remove("active"));
+  const btn = document.getElementById(level === -1 ? "q-auto" : `q-${level}`);
+  if (btn) btn.classList.add("active");
+  appendLog(`Quality set to ${level === -1 ? "Auto" : hls.levels[level]?.height + "p"}`, "info");
+}
+
+function buildQualityButtons(levels) {
+  const row = document.getElementById("quality-row");
+  // Remove old quality buttons (keep label + auto)
+  [...row.querySelectorAll(".quality-btn:not(#q-auto)")].forEach(b => b.remove());
+  levels.forEach((level, i) => {
+    const btn = document.createElement("button");
+    btn.className = "quality-btn";
+    btn.id = `q-${i}`;
+    btn.textContent = `${level.height}p`;
+    btn.onclick = () => setQuality(i);
+    row.appendChild(btn);
+  });
+}
+
+// ── Stats update loop ────────────────────────────────────────────────────────
+function startStats() {
+  setInterval(() => {
+    if (!hls || !video) return;
+    const buf = video.buffered.length
+      ? (video.buffered.end(video.buffered.length - 1) - video.currentTime).toFixed(1)
+      : "—";
+    document.getElementById("stat-buffer").textContent = buf;
+
+    const level = hls.currentLevel;
+    const levelInfo = level >= 0 ? hls.levels[level] : null;
+    document.getElementById("stat-level").textContent =
+      level === -1 ? "Auto" : (levelInfo ? `${levelInfo.height}p` : level);
+
+    document.getElementById("stat-bitrate").textContent =
+      levelInfo ? Math.round((levelInfo.bitrate || 0) / 1000) : "—";
+
+    const videoEl = document.getElementById("video");
+    document.getElementById("stat-dropped").textContent =
+      videoEl.getVideoPlaybackQuality
+        ? videoEl.getVideoPlaybackQuality().droppedVideoFrames
+        : "—";
+
+    const latency = video.currentTime ? (Date.now() / 1000 - video.currentTime).toFixed(1) : "—";
+    document.getElementById("stat-latency").textContent = latency;
+  }, 1000);
+}
+
+// ── Play / Stop ──────────────────────────────────────────────────────────────
+function loadStream() {
+  const url = document.getElementById("stream-url").value.trim();
+  if (!url) { appendLog("Enter a stream URL first", "err"); return; }
+
+  stopStream();
+
+  setStatus("Connecting…", "yellow");
+  overlay.classList.remove("hidden");
+  overlay.querySelector(".overlay-icon").textContent = "⏳";
+  overlay.querySelector(".overlay-text").textContent = "Connecting to stream…";
+
+  if (Hls.isSupported()) {
+    hls = new Hls({
+      lowLatencyMode: false,
+      backBufferLength: 30,
+      maxBufferLength:  30,
+      liveSyncDurationCount: 3,
+      debug: false,
+    });
+
+    hls.loadSource(url);
+    hls.attachMedia(video);
+
+    hls.on(Hls.Events.MANIFEST_PARSED, (event, data) => {
+      appendLog(`Manifest loaded — ${data.levels.length} quality level(s)`, "ok");
+      buildQualityButtons(data.levels);
+      overlay.classList.add("hidden");
+      setStatus("Playing", "green");
+      video.play().catch(console.warn);
+    });
+
+    hls.on(Hls.Events.LEVEL_SWITCHED, (event, data) => {
+      const l = hls.levels[data.level];
+      appendLog(`Quality switched → ${l ? l.height + "p" : data.level}`, "info");
+      document.getElementById("stat-level").textContent = l ? l.height + "p" : data.level;
+      document.querySelectorAll(".quality-btn").forEach(b => b.classList.remove("active"));
+      const activeBtn = document.getElementById(`q-${data.level}`);
+      if (activeBtn) activeBtn.classList.add("active");
+    });
+
+    hls.on(Hls.Events.FRAG_LOADED, (event, data) => {
+      const q = data.frag.level >= 0 && hls.levels[data.frag.level]
+        ? hls.levels[data.frag.level].height + "p"
+        : "?";
+      appendLog(`Segment loaded sn=${data.frag.sn} q=${q} (${(data.stats.total/1024).toFixed(0)} KB)`, "info");
+    });
+
+    hls.on(Hls.Events.ERROR, (event, data) => {
+      appendLog(`${data.type}: ${data.details} (fatal=${data.fatal})`, "err");
+      if (data.fatal) {
+        setStatus("Error", "red");
+        overlay.classList.remove("hidden");
+        overlay.querySelector(".overlay-icon").textContent = "⚠️";
+        overlay.querySelector(".overlay-text").textContent = `${data.details}`;
+        if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+          appendLog("Network error — retrying…", "err");
+          hls.startLoad();
+        } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+          hls.recoverMediaError();
+        } else {
+          stopStream();
+        }
+      }
+    });
+
+  } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
+    // Safari native HLS
+    video.src = url;
+    video.addEventListener("canplay", () => {
+      overlay.classList.add("hidden");
+      setStatus("Playing", "green");
+      video.play().catch(console.warn);
+    }, { once: true });
+    video.addEventListener("error", () => {
+      setStatus("Error", "red");
+      appendLog("Safari native HLS error", "err");
+    }, { once: true });
+  } else {
+    appendLog("HLS is not supported in this browser", "err");
+  }
+
+  appendLog(`Loading: ${url}`, "info");
+}
+
+function stopStream() {
+  if (hls) { hls.destroy(); hls = null; }
+  video.removeAttribute("src");
+  video.load();
+  overlay.classList.remove("hidden");
+  overlay.querySelector(".overlay-icon").textContent = "📡";
+  overlay.querySelector(".overlay-text").textContent = "Enter a stream URL above and press Play";
+  setStatus("Idle");
+  document.getElementById("quality-row").querySelectorAll(".quality-btn:not(#q-auto)").forEach(b => b.remove());
+  document.getElementById("q-auto").classList.add("active");
+}
+
+function setStatus(text, color = "") {
+  const el = document.getElementById("stat-status");
+  el.textContent = text;
+  el.className = `stat-value ${color}`;
+}
+
+// Pre-fill the input with the default URL
+document.getElementById("stream-url").value =
+  `${MINIO_BASE}/${DEFAULT_STREAM_KEY}/master.m3u8`;
+
+startStats();
+appendLog("Player ready — press Play to load a stream", "info");
+</script>
+
+</body>
+</html>

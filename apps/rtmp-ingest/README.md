@@ -389,7 +389,7 @@ OBS will connect to nginx on port 1935. nginx calls rtmp-ingest `/rtmp/on-publis
 Watch the rtmp-ingest logs:
 ```
 [rtmp-ingest] on_publish callback received  { app: 'live', clientIp: '...' }
-[rtmp-ingest] ✅ Stream started — RTMP connection allowed  { streamId: '...', userId: '...' }
+[rtmp-ingest]  Stream started — RTMP connection allowed  { streamId: '...', userId: '...' }
 [rtmp-ingest] Published stream.started  { streamId: '...', topic: 'stream.started' }
 ```
 

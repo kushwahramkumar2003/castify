@@ -3,4 +3,8 @@ export type {
   StreamKeyValidation,
   StreamStartedEvent,
   StreamEndedEvent,
+  VideoSegmentReadyEvent,
+  TranscodingState,
+  QualityLabel,
+  ActiveStreamSnapshot,
 } from "./kafka.ts";

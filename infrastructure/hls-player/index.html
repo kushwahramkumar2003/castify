@@ -3,27 +3,35 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Castify — HLS Player</title>
+  <title>Castify Dev Player</title>
   <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.15/dist/hls.min.js"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
     :root {
-      --bg:        #0d0d14;
-      --surface:   #16161f;
-      --surface2:  #1e1e2e;
-      --border:    #2a2a3d;
+      --bg:        #080810;
+      --surface:   #111120;
+      --surface2:  #181828;
+      --surface3:  #1e1e32;
+      --border:    #252538;
+      --border2:   #30304a;
       --accent:    #7c3aed;
-      --accent2:   #a855f7;
-      --green:     #22c55e;
-      --red:       #ef4444;
-      --yellow:    #f59e0b;
-      --text:      #e2e2f0;
-      --muted:     #6b6b8a;
-      --radius:    12px;
+      --accent2:   #a78bfa;
+      --accent3:   #c4b5fd;
+      --green:     #4ade80;
+      --green2:    #16a34a;
+      --yellow:    #fbbf24;
+      --orange:    #f97316;
+      --red:       #f87171;
+      --blue:      #60a5fa;
+      --cyan:      #22d3ee;
+      --text:      #e2e2f4;
+      --muted:     #6b6b90;
+      --muted2:    #4a4a68;
+      --mono:      'JetBrains Mono', monospace;
+      --r:         10px;
+      --r-sm:      6px;
     }
 
     body {
@@ -31,553 +39,962 @@
       background: var(--bg);
       color: var(--text);
       min-height: 100vh;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      padding: 24px 16px 48px;
+      display: grid;
+      grid-template-columns: 1fr 380px;
+      grid-template-rows: auto 1fr;
+      gap: 0;
     }
 
-    /* ── Header ─────────────────────────────── */
+    /* ── Header ────────────────────────────────────── */
     header {
-      width: 100%;
-      max-width: 960px;
+      grid-column: 1 / -1;
       display: flex;
       align-items: center;
-      gap: 12px;
-      margin-bottom: 32px;
+      gap: 16px;
+      padding: 14px 20px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      position: sticky; top: 0; z-index: 100;
     }
-    .logo {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-    }
+    .logo { display: flex; align-items: center; gap: 10px; }
     .logo-icon {
-      width: 36px; height: 36px;
-      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      width: 32px; height: 32px;
+      background: linear-gradient(135deg, var(--accent), #c026d3);
       border-radius: 8px;
       display: flex; align-items: center; justify-content: center;
-      font-size: 18px;
+      font-size: 16px; flex-shrink: 0;
     }
-    .logo h1 { font-size: 1.25rem; font-weight: 700; letter-spacing: -0.02em; }
-    .logo span { color: var(--accent2); }
-    .badge {
+    .logo-text { font-size: 1.05rem; font-weight: 700; letter-spacing: -0.02em; }
+    .logo-text span { color: var(--accent2); }
+    .header-badge {
+      padding: 3px 10px; border-radius: 999px;
+      font-size: 0.68rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+      background: rgba(124,58,237,0.15); color: var(--accent2);
+      border: 1px solid rgba(124,58,237,0.3);
+    }
+    .header-status {
       margin-left: auto;
-      padding: 4px 10px;
-      border-radius: 999px;
-      font-size: 0.72rem;
-      font-weight: 600;
-      letter-spacing: 0.04em;
-      text-transform: uppercase;
+      display: flex; align-items: center; gap: 8px;
     }
-    .badge-dev { background: rgba(124,58,237,0.2); color: var(--accent2); border: 1px solid rgba(124,58,237,0.3); }
+    .status-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--muted2);
+      transition: background 0.3s;
+    }
+    .status-dot.live { background: var(--green); box-shadow: 0 0 8px var(--green); animation: pulse 2s infinite; }
+    .status-dot.error { background: var(--red); }
+    .status-dot.buffering { background: var(--yellow); animation: pulse 1s infinite; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+    .status-label { font-size: 0.78rem; font-weight: 600; color: var(--muted); }
 
-    /* ── Main layout ─────────────────────────── */
-    main {
-      width: 100%;
-      max-width: 960px;
-      display: flex;
-      flex-direction: column;
-      gap: 20px;
+    /* ── Main & Sidebar layout ───────────────────── */
+    .main-col {
+      display: flex; flex-direction: column; gap: 12px;
+      padding: 16px; overflow-y: auto; min-height: 0;
+    }
+    .side-col {
+      display: flex; flex-direction: column; gap: 0;
+      background: var(--surface);
+      border-left: 1px solid var(--border);
+      overflow-y: auto; min-height: 0;
     }
 
-    /* ── URL input card ──────────────────────── */
-    .card {
+    /* ── URL bar ─────────────────────────────────── */
+    .url-bar {
       background: var(--surface);
       border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 20px;
+      border-radius: var(--r);
+      padding: 14px 16px;
     }
-    .card-title {
-      font-size: 0.8rem;
-      font-weight: 600;
-      color: var(--muted);
-      text-transform: uppercase;
-      letter-spacing: 0.06em;
-      margin-bottom: 12px;
-    }
-
-    .url-row {
-      display: flex;
-      gap: 10px;
-    }
+    .url-row { display: flex; gap: 8px; }
     #stream-url {
       flex: 1;
-      background: var(--surface2);
+      background: var(--surface3);
       border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 10px 14px;
+      border-radius: var(--r-sm);
+      padding: 9px 12px;
       color: var(--text);
-      font-family: 'Inter', monospace;
-      font-size: 0.85rem;
+      font-family: var(--mono);
+      font-size: 0.78rem;
       outline: none;
       transition: border-color 0.2s;
     }
     #stream-url:focus { border-color: var(--accent); }
-    #stream-url::placeholder { color: var(--muted); }
+    #stream-url::placeholder { color: var(--muted2); }
+    .btn {
+      padding: 9px 16px; border-radius: var(--r-sm);
+      font-family: inherit; font-size: 0.82rem; font-weight: 600;
+      cursor: pointer; border: none; transition: all 0.15s; white-space: nowrap;
+    }
+    .btn-primary { background: var(--accent); color: #fff; }
+    .btn-primary:hover { background: #6d28d9; transform: translateY(-1px); }
+    .btn-ghost { background: var(--surface3); color: var(--muted); border: 1px solid var(--border); }
+    .btn-ghost:hover { border-color: var(--border2); color: var(--text); }
+    .btn-danger { background: rgba(248,113,113,0.12); color: var(--red); border: 1px solid rgba(248,113,113,0.25); }
+    .btn-danger:hover { background: rgba(248,113,113,0.2); }
 
-    button {
-      padding: 10px 20px;
-      border-radius: 8px;
-      font-family: inherit;
-      font-size: 0.875rem;
-      font-weight: 600;
-      cursor: pointer;
-      border: none;
-      transition: all 0.15s;
+    .preset-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; align-items: center; }
+    .preset-label { font-size: 0.7rem; color: var(--muted2); margin-right: 2px; }
+    .preset-chip {
+      padding: 4px 10px; border-radius: 4px;
+      font-size: 0.72rem; font-weight: 500; font-family: var(--mono);
+      background: var(--surface3); border: 1px solid var(--border);
+      color: var(--muted); cursor: pointer; transition: all 0.15s;
     }
-    .btn-primary {
-      background: var(--accent);
-      color: #fff;
-    }
-    .btn-primary:hover { background: var(--accent2); transform: translateY(-1px); }
-    .btn-secondary {
-      background: var(--surface2);
-      color: var(--text);
-      border: 1px solid var(--border);
-    }
-    .btn-secondary:hover { border-color: var(--accent); }
+    .preset-chip:hover { border-color: var(--accent2); color: var(--accent2); }
 
-    /* ── Quick presets ───────────────────────── */
-    .presets {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-      margin-top: 12px;
-    }
-    .preset-btn {
-      padding: 5px 12px;
-      font-size: 0.78rem;
-      font-weight: 500;
-      border-radius: 6px;
-      background: var(--surface2);
-      border: 1px solid var(--border);
-      color: var(--muted);
-      cursor: pointer;
-      font-family: monospace;
-      transition: all 0.15s;
-    }
-    .preset-btn:hover { border-color: var(--accent2); color: var(--accent2); }
-
-    /* ── Video area ──────────────────────────── */
-    .video-wrapper {
+    /* ── Video ───────────────────────────────────── */
+    .video-wrap {
       position: relative;
       background: #000;
-      border-radius: var(--radius);
+      border-radius: var(--r);
       overflow: hidden;
       aspect-ratio: 16/9;
       border: 1px solid var(--border);
     }
-    video {
-      width: 100%;
-      height: 100%;
-      display: block;
-    }
+    video { width: 100%; height: 100%; display: block; background: #000; }
     .video-overlay {
-      position: absolute;
-      inset: 0;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      gap: 12px;
-      background: rgba(0,0,0,0.7);
-      transition: opacity 0.3s;
+      position: absolute; inset: 0;
+      display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
+      background: rgba(8,8,16,0.85); transition: opacity 0.3s;
     }
-    .video-overlay.hidden { opacity: 0; pointer-events: none; }
-    .overlay-icon { font-size: 3rem; }
-    .overlay-text { font-size: 1rem; font-weight: 500; color: var(--muted); }
+    .video-overlay.gone { opacity: 0; pointer-events: none; }
+    .ov-icon { font-size: 2.5rem; }
+    .ov-text { font-size: 0.9rem; color: var(--muted); }
 
-    /* ── Stats row ───────────────────────────── */
-    .stats-row {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-      gap: 12px;
+    /* ── OSD overlay on video ────────────────────── */
+    .osd {
+      position: absolute; top: 10px; left: 10px;
+      background: rgba(8,8,16,0.7);
+      backdrop-filter: blur(8px);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: var(--r-sm);
+      padding: 8px 12px;
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      color: rgba(255,255,255,0.7);
+      line-height: 1.8;
+      display: none;
+      pointer-events: none;
     }
-    .stat {
+    .osd.visible { display: block; }
+    .osd-row { display: flex; gap: 8px; }
+    .osd-k { color: rgba(255,255,255,0.35); }
+    .osd-v { color: #fff; }
+    .osd-v.warn { color: var(--yellow); }
+    .osd-v.bad  { color: var(--red); }
+    .osd-v.good { color: var(--green); }
+
+    /* ── Quality / Controls strip ─────────────────── */
+    .controls-strip {
+      display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
       background: var(--surface);
       border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 14px 16px;
+      border-radius: var(--r);
+      padding: 12px 16px;
     }
-    .stat-label {
-      font-size: 0.7rem;
-      font-weight: 600;
-      color: var(--muted);
-      text-transform: uppercase;
-      letter-spacing: 0.06em;
-      margin-bottom: 6px;
+    .strip-label { font-size: 0.7rem; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+    .q-btn {
+      padding: 5px 12px; border-radius: 5px;
+      font-size: 0.78rem; font-weight: 600; font-family: var(--mono);
+      background: var(--surface3); border: 1px solid var(--border); color: var(--muted);
+      cursor: pointer; transition: all 0.15s;
     }
-    .stat-value {
-      font-size: 1.1rem;
-      font-weight: 700;
-      color: var(--text);
+    .q-btn:hover:not(.active) { border-color: var(--accent2); color: var(--accent2); }
+    .q-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+    .strip-sep { width: 1px; height: 20px; background: var(--border); flex-shrink: 0; }
+    .toggle-btn {
+      padding: 5px 10px; border-radius: 5px;
+      font-size: 0.72rem; font-weight: 500;
+      background: var(--surface3); border: 1px solid var(--border); color: var(--muted);
+      cursor: pointer; transition: all 0.15s;
     }
-    .stat-value.green { color: var(--green); }
-    .stat-value.yellow { color: var(--yellow); }
-    .stat-value.red { color: var(--red); }
+    .toggle-btn.on { background: rgba(74,222,128,0.12); border-color: rgba(74,222,128,0.3); color: var(--green); }
 
-    /* ── Quality selector ────────────────────── */
-    .quality-row {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      flex-wrap: wrap;
+    /* ── Side panel sections ─────────────────────── */
+    .panel-section {
+      border-bottom: 1px solid var(--border);
+      padding: 16px;
     }
-    .quality-row label { font-size: 0.8rem; color: var(--muted); font-weight: 500; }
-    .quality-btn {
-      padding: 5px 14px;
-      font-size: 0.8rem;
-      border-radius: 6px;
+    .panel-title {
+      font-size: 0.68rem; font-weight: 700; color: var(--muted);
+      text-transform: uppercase; letter-spacing: 0.08em;
+      margin-bottom: 12px;
+      display: flex; align-items: center; gap: 6px;
+    }
+    .panel-title span { color: var(--muted2); font-weight: 400; }
+
+    /* ── Stat grid ───────────────────────────────── */
+    .stat-grid {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+    }
+    .stat-grid.cols3 { grid-template-columns: 1fr 1fr 1fr; }
+    .stat-card {
       background: var(--surface2);
       border: 1px solid var(--border);
-      color: var(--muted);
+      border-radius: var(--r-sm);
+      padding: 10px 12px;
     }
-    .quality-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
-    .quality-btn:hover:not(.active) { border-color: var(--accent2); color: var(--accent2); }
+    .sc-label { font-size: 0.62rem; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px; }
+    .sc-value { font-size: 1rem; font-weight: 700; font-family: var(--mono); color: var(--text); }
+    .sc-value.green { color: var(--green); }
+    .sc-value.yellow { color: var(--yellow); }
+    .sc-value.orange { color: var(--orange); }
+    .sc-value.red { color: var(--red); }
+    .sc-value.blue { color: var(--blue); }
+    .sc-value.cyan { color: var(--cyan); }
+    .sc-sub { font-size: 0.62rem; color: var(--muted2); margin-top: 2px; font-family: var(--mono); }
 
-    /* ── Log ─────────────────────────────────── */
-    .log {
+    /* ── Latency gauge ───────────────────────────── */
+    .latency-gauge {
+      position: relative;
       background: var(--surface2);
       border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 16px;
-      font-family: monospace;
-      font-size: 0.78rem;
-      color: var(--muted);
-      height: 150px;
-      overflow-y: auto;
-      display: flex;
-      flex-direction: column-reverse;
-      gap: 2px;
+      border-radius: var(--r-sm);
+      padding: 12px;
+      margin-bottom: 8px;
     }
-    .log-entry { display: flex; gap: 10px; }
-    .log-time { color: #3b3b55; white-space: nowrap; }
-    .log-msg.ok  { color: var(--green); }
-    .log-msg.err { color: var(--red); }
-    .log-msg.info { color: var(--text); }
+    .lg-row { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; }
+    .lg-label { font-size: 0.62rem; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+    .lg-value { font-size: 1.4rem; font-weight: 700; font-family: var(--mono); }
+    .lg-bar { height: 4px; border-radius: 2px; background: var(--surface3); overflow: hidden; margin-bottom: 4px; }
+    .lg-fill { height: 100%; border-radius: 2px; transition: width 0.5s, background 0.5s; }
+    .lg-markers { display: flex; justify-content: space-between; }
+    .lg-marker { font-size: 0.58rem; color: var(--muted2); font-family: var(--mono); }
 
-    /* ── Info box ────────────────────────────── */
-    .info-box {
-      background: rgba(124,58,237,0.08);
-      border: 1px solid rgba(124,58,237,0.25);
-      border-radius: var(--radius);
-      padding: 16px;
-      font-size: 0.82rem;
-      line-height: 1.7;
-      color: var(--muted);
+    /* ── Pipeline breakdown ──────────────────────── */
+    .pipeline {
+      display: flex; flex-direction: column; gap: 4px;
     }
-    .info-box code {
-      background: var(--surface2);
-      padding: 2px 6px;
-      border-radius: 4px;
-      font-family: monospace;
-      color: var(--accent2);
-      font-size: 0.88em;
+    .pipe-row {
+      display: flex; align-items: center; gap: 8px;
     }
-    .info-box strong { color: var(--text); }
+    .pipe-label { font-size: 0.67rem; color: var(--muted); width: 110px; flex-shrink: 0; }
+    .pipe-bar-wrap { flex: 1; height: 6px; background: var(--surface3); border-radius: 3px; overflow: hidden; }
+    .pipe-bar { height: 100%; border-radius: 3px; transition: width 0.5s; }
+    .pipe-value { font-size: 0.67rem; font-family: var(--mono); color: var(--text); width: 50px; text-align: right; flex-shrink: 0; }
 
-    /* Scrollbar */
-    ::-webkit-scrollbar { width: 4px; }
+    /* ── Bandwidth chart ─────────────────────────── */
+    .chart-wrap { position: relative; height: 80px; }
+    canvas.chart { width: 100%; height: 100%; display: block; }
+
+    /* ── Segment feed ────────────────────────────── */
+    .seg-feed {
+      display: flex; flex-direction: column; gap: 3px;
+      max-height: 180px; overflow-y: auto;
+    }
+    .seg-row {
+      display: flex; align-items: center; gap: 8px;
+      padding: 4px 6px; border-radius: 4px;
+      background: var(--surface2); border: 1px solid transparent;
+      font-family: var(--mono); font-size: 0.68rem;
+      animation: fadeIn 0.3s ease;
+    }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(-4px); } }
+    .seg-q {
+      padding: 1px 6px; border-radius: 3px;
+      font-size: 0.62rem; font-weight: 700; flex-shrink: 0;
+    }
+    .seg-q.q2k    { background: rgba(196,181,253,0.2); color: #c4b5fd; }
+    .seg-q.q1080p { background: rgba(96,165,250,0.2);  color: var(--blue); }
+    .seg-q.q720p  { background: rgba(74,222,128,0.2);  color: var(--green); }
+    .seg-q.q480p  { background: rgba(251,191,36,0.2);  color: var(--yellow); }
+    .seg-q.q360p  { background: rgba(156,163,175,0.2); color: #9ca3af; }
+    .seg-sn { color: var(--muted); }
+    .seg-size { margin-left: auto; color: var(--muted2); }
+    .seg-time { color: var(--muted2); }
+
+    /* ── Event log ───────────────────────────────── */
+    .event-log {
+      display: flex; flex-direction: column-reverse; gap: 2px;
+      max-height: 180px; overflow-y: auto;
+      font-family: var(--mono); font-size: 0.68rem;
+    }
+    .el-row { display: flex; gap: 8px; line-height: 1.6; }
+    .el-time { color: var(--muted2); flex-shrink: 0; }
+    .el-msg { }
+    .el-msg.ok   { color: var(--green); }
+    .el-msg.warn { color: var(--yellow); }
+    .el-msg.err  { color: var(--red); }
+    .el-msg.info { color: var(--text); }
+    .el-msg.dim  { color: var(--muted); }
+
+    /* Scrollbars */
+    ::-webkit-scrollbar { width: 3px; height: 3px; }
     ::-webkit-scrollbar-track { background: transparent; }
-    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+    ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
   </style>
 </head>
 <body>
 
+<!-- ── Header ─────────────────────────────────────── -->
 <header>
   <div class="logo">
-    <div class="logo-icon">🎥</div>
-    <h1>Casti<span>fy</span> Player</h1>
+    <div class="logo-icon">🎬</div>
+    <div class="logo-text">Casti<span>fy</span> Dev Player</div>
   </div>
-  <span class="badge badge-dev">Dev Tool</span>
+  <span class="header-badge">Developer</span>
+
+  <div class="header-status">
+    <div class="status-dot" id="hdr-dot"></div>
+    <span class="status-label" id="hdr-label">Idle</span>
+  </div>
 </header>
 
-<main>
+<!-- ── Main column ─────────────────────────────────── -->
+<div class="main-col">
 
-  <!-- URL input -->
-  <div class="card">
-    <div class="card-title">HLS Stream URL</div>
+  <!-- URL bar -->
+  <div class="url-bar">
     <div class="url-row">
-      <input id="stream-url" type="text"
-        placeholder="http://localhost:9100/hls-segments/live/<stream-key>/master.m3u8"
-        spellcheck="false">
-      <button class="btn-primary" onclick="loadStream()">▶ Play</button>
-      <button class="btn-secondary" onclick="stopStream()">■ Stop</button>
+      <input id="stream-url" type="text" spellcheck="false"
+        placeholder="http://localhost:8080/minio/hls-segments/live/<stream-key>/master.m3u8">
+      <button class="btn btn-primary" onclick="loadStream()">▶ Play</button>
+      <button class="btn btn-danger"  onclick="stopStream()">■ Stop</button>
     </div>
-    <div class="presets">
-      <span style="font-size:0.75rem;color:var(--muted);padding:5px 0;align-self:center">Quick load:</span>
-      <button class="preset-btn" onclick="setPreset('master')">master.m3u8 (ABR)</button>
-      <button class="preset-btn" onclick="setPreset('720p')">720p only</button>
-      <button class="preset-btn" onclick="setPreset('480p')">480p only</button>
-      <button class="preset-btn" onclick="setPreset('360p')">360p only</button>
+    <div class="preset-row">
+      <span class="preset-label">Quick:</span>
+      <button class="preset-chip" onclick="setPreset('master')">ABR master</button>
+      <button class="preset-chip" onclick="setPreset('2k')">2K</button>
+      <button class="preset-chip" onclick="setPreset('1080p')">1080p</button>
+      <button class="preset-chip" onclick="setPreset('720p')">720p</button>
+      <button class="preset-chip" onclick="setPreset('480p')">480p</button>
+      <button class="preset-chip" onclick="setPreset('360p')">360p</button>
     </div>
   </div>
 
-  <!-- Video player -->
-  <div class="video-wrapper">
-    <video id="video" controls autoplay muted playsinline></video>
+  <!-- Video -->
+  <div class="video-wrap" id="video-wrap">
+    <video id="video" controls muted playsinline></video>
     <div class="video-overlay" id="overlay">
-      <div class="overlay-icon">📡</div>
-      <div class="overlay-text">Enter a stream URL above and press Play</div>
+      <div class="ov-icon">📡</div>
+      <div class="ov-text">Enter a stream URL and press Play</div>
+    </div>
+    <!-- On-screen debug display -->
+    <div class="osd" id="osd">
+      <div class="osd-row"><span class="osd-k">Quality</span> <span class="osd-v" id="osd-q">—</span></div>
+      <div class="osd-row"><span class="osd-k">Buffer</span>  <span class="osd-v" id="osd-buf">—</span></div>
+      <div class="osd-row"><span class="osd-k">Latency</span> <span class="osd-v" id="osd-lat">—</span></div>
+      <div class="osd-row"><span class="osd-k">Bitrate</span> <span class="osd-v" id="osd-bw">—</span></div>
+      <div class="osd-row"><span class="osd-k">FPS</span>     <span class="osd-v" id="osd-fps">—</span></div>
+      <div class="osd-row"><span class="osd-k">Dropped</span> <span class="osd-v" id="osd-drop">—</span></div>
     </div>
   </div>
 
-  <!-- Quality picker -->
-  <div class="card">
-    <div class="card-title">Quality</div>
-    <div class="quality-row" id="quality-row">
-      <label>Auto (ABR)</label>
-      <button class="quality-btn active" onclick="setQuality(-1)" id="q-auto">Auto</button>
-      <!-- Dynamic quality buttons injected by JS -->
+  <!-- Controls strip -->
+  <div class="controls-strip">
+    <span class="strip-label">Quality</span>
+    <button class="q-btn active" id="q-auto" onclick="setQuality(-1)">Auto ABR</button>
+    <div class="strip-sep"></div>
+    <span class="strip-label">Overlay</span>
+    <button class="toggle-btn" id="osd-toggle" onclick="toggleOSD()">OSD</button>
+    <button class="toggle-btn" id="mute-toggle" onclick="toggleMute()">🔇 Muted</button>
+    <button class="toggle-btn" id="fs-toggle"   onclick="toggleFS()">⛶ Fullscreen</button>
+    <div class="strip-sep"></div>
+    <span class="strip-label">Sync</span>
+    <button class="toggle-btn" id="ll-toggle" onclick="toggleLL()">⚡ Live-Edge</button>
+  </div>
+
+</div>
+
+<!-- ── Sidebar ─────────────────────────────────────── -->
+<div class="side-col">
+
+  <!-- Latency section -->
+  <div class="panel-section">
+    <div class="panel-title">Latency Breakdown <span id="lat-freshness"></span></div>
+
+    <div class="latency-gauge">
+      <div class="lg-row">
+        <span class="lg-label">End-to-End (OBS → Player)</span>
+        <span class="lg-value" id="lat-e2e" style="color: var(--cyan)">—</span>
+      </div>
+      <div class="lg-bar"><div class="lg-fill" id="lat-bar" style="width:0%;background:var(--green)"></div></div>
+      <div class="lg-markers">
+        <span class="lg-marker">0s</span>
+        <span class="lg-marker">good &lt;5s</span>
+        <span class="lg-marker">ok &lt;10s</span>
+        <span class="lg-marker">30s</span>
+      </div>
+    </div>
+
+    <div class="pipeline">
+      <div class="pipe-row">
+        <span class="pipe-label">OBS → nginx RTMP</span>
+        <div class="pipe-bar-wrap"><div class="pipe-bar" id="pb-ingest"  style="width:0%;background:#7c3aed"></div></div>
+        <span class="pipe-value" id="pv-ingest">~0.1s</span>
+      </div>
+      <div class="pipe-row">
+        <span class="pipe-label">FFmpeg transcode</span>
+        <div class="pipe-bar-wrap"><div class="pipe-bar" id="pb-transcode" style="width:0%;background:#60a5fa"></div></div>
+        <span class="pipe-value" id="pv-transcode">—</span>
+      </div>
+      <div class="pipe-row">
+        <span class="pipe-label">HLS segment (2s)</span>
+        <div class="pipe-bar-wrap"><div class="pipe-bar" id="pb-segment"   style="width:0%;background:#4ade80"></div></div>
+        <span class="pipe-value" id="pv-segment">2.0s</span>
+      </div>
+      <div class="pipe-row">
+        <span class="pipe-label">MinIO upload</span>
+        <div class="pipe-bar-wrap"><div class="pipe-bar" id="pb-upload"    style="width:0%;background:#fbbf24"></div></div>
+        <span class="pipe-value" id="pv-upload">—</span>
+      </div>
+      <div class="pipe-row">
+        <span class="pipe-label">Player buffer</span>
+        <div class="pipe-bar-wrap"><div class="pipe-bar" id="pb-buffer"    style="width:0%;background:#f97316"></div></div>
+        <span class="pipe-value" id="pv-buffer">—</span>
+      </div>
+    </div>
+
+    <div class="stat-grid" style="margin-top:10px">
+      <div class="stat-card">
+        <div class="sc-label">Sync Offset</div>
+        <div class="sc-value" id="s-offset">—</div>
+        <div class="sc-sub">vs live-edge</div>
+      </div>
+      <div class="stat-card">
+        <div class="sc-label">Seg Load</div>
+        <div class="sc-value" id="s-segload">—</div>
+        <div class="sc-sub">last segment RTT</div>
+      </div>
     </div>
   </div>
 
-  <!-- Stats -->
-  <div class="stats-row">
-    <div class="stat">
-      <div class="stat-label">Status</div>
-      <div class="stat-value" id="stat-status">Idle</div>
+  <!-- Video stats -->
+  <div class="panel-section">
+    <div class="panel-title">Video Stats</div>
+    <div class="stat-grid cols3">
+      <div class="stat-card">
+        <div class="sc-label">Resolution</div>
+        <div class="sc-value blue" id="s-res">—</div>
+      </div>
+      <div class="stat-card">
+        <div class="sc-label">Framerate</div>
+        <div class="sc-value" id="s-fps">—</div>
+      </div>
+      <div class="stat-card">
+        <div class="sc-label">Codec</div>
+        <div class="sc-value" id="s-codec" style="font-size:0.75rem">—</div>
+      </div>
+      <div class="stat-card">
+        <div class="sc-label">Dropped ▼</div>
+        <div class="sc-value" id="s-drop">—</div>
+      </div>
+      <div class="stat-card">
+        <div class="sc-label">Decoded ✓</div>
+        <div class="sc-value" id="s-decoded">—</div>
+      </div>
+      <div class="stat-card">
+        <div class="sc-label">Corrupted</div>
+        <div class="sc-value red" id="s-corrupt">—</div>
+      </div>
     </div>
-    <div class="stat">
-      <div class="stat-label">Level</div>
-      <div class="stat-value" id="stat-level">—</div>
+  </div>
+
+  <!-- Network stats -->
+  <div class="panel-section">
+    <div class="panel-title">Network</div>
+    <div class="stat-grid" style="margin-bottom:10px">
+      <div class="stat-card">
+        <div class="sc-label">Bandwidth Est.</div>
+        <div class="sc-value cyan" id="s-bw">—</div>
+        <div class="sc-sub" id="s-bw-sub">Mbps</div>
+      </div>
+      <div class="stat-card">
+        <div class="sc-label">Current Level</div>
+        <div class="sc-value" id="s-level">—</div>
+        <div class="sc-sub" id="s-level-sub">target bitrate</div>
+      </div>
+      <div class="stat-card">
+        <div class="sc-label">Rebuffers</div>
+        <div class="sc-value orange" id="s-rebuffer">0</div>
+        <div class="sc-sub">this session</div>
+      </div>
+      <div class="stat-card">
+        <div class="sc-label">Buffer (s)</div>
+        <div class="sc-value" id="s-buf">—</div>
+        <div class="sc-sub">ahead of playhead</div>
+      </div>
     </div>
-    <div class="stat">
-      <div class="stat-label">Buffer (s)</div>
-      <div class="stat-value" id="stat-buffer">—</div>
+    <div class="chart-wrap">
+      <canvas id="bw-chart" class="chart"></canvas>
     </div>
-    <div class="stat">
-      <div class="stat-label">Bitrate (kbps)</div>
-      <div class="stat-value" id="stat-bitrate">—</div>
-    </div>
-    <div class="stat">
-      <div class="stat-label">Dropped Frames</div>
-      <div class="stat-value" id="stat-dropped">—</div>
-    </div>
-    <div class="stat">
-      <div class="stat-label">Latency (s)</div>
-      <div class="stat-value" id="stat-latency">—</div>
-    </div>
+  </div>
+
+  <!-- Segment feed -->
+  <div class="panel-section">
+    <div class="panel-title">Segment Feed <span id="seg-count-badge"></span></div>
+    <div class="seg-feed" id="seg-feed"></div>
   </div>
 
   <!-- Event log -->
-  <div class="card">
-    <div class="card-title">Event Log</div>
-    <div class="log" id="event-log"></div>
+  <div class="panel-section">
+    <div class="panel-title">Event Log</div>
+    <div class="event-log" id="event-log"></div>
   </div>
 
-  <!-- Instructions -->
-  <div class="info-box">
-    <strong>How to use:</strong><br>
-    Start OBS → point to <code>rtmp://localhost:1935/live</code> with stream key <code>local-dev-key-streamer-01</code><br>
-    Start <code>rtmp-ingest</code> + <code>transcoding-service</code>, then press one of the quick-load buttons above.<br><br>
-    <strong>Stream URL via nginx proxy (CORS safe):</strong><br>
-    <code>http://localhost:8080/minio/hls-segments/live/local-dev-key-streamer-01/master.m3u8</code><br><br>
-    <strong>Or direct MinIO (no CORS):</strong><br>
-    <code>http://localhost:9100/hls-segments/live/local-dev-key-streamer-01/master.m3u8</code><br><br>
-    <strong>Force a specific quality track:</strong><br>
-    <code>http://localhost:8080/minio/hls-segments/live/local-dev-key-streamer-01/720p/index.m3u8</code><br><br>
-    <strong>Note:</strong> The player uses hls.js — works in Chrome, Firefox, Edge, and Safari 14+.
-    Safari 13 and below support HLS natively via the <code>&lt;video&gt;</code> element.
-  </div>
-
-</main>
+</div>
 
 <script>
-const DEFAULT_STREAM_KEY = "local-dev-key-streamer-01";
-// Route through nginx /minio proxy (port 8080, same origin) instead of
-// direct MinIO (port 9100). nginx adds CORS headers so the browser doesn't
-// block the requests. Both this page and MinIO content come from port 8080.
-const MINIO_BASE = "http://localhost:8080/minio/hls-segments/live";
+// ── Config ─────────────────────────────────────────────────────────────────
+const STREAM_KEY  = "local-dev-key-streamer-01";
+const MINIO_PROXY = "http://localhost:8080/minio/hls-segments/live";
+const SEGMENT_DUR = 2; // seconds per HLS segment
 
-let hls = null;
-const video = document.getElementById("video");
+// ── State ──────────────────────────────────────────────────────────────────
+let hls        = null;
+let osdVisible = false;
+let liveEdge   = false;
+let rebufCount = 0;
+let segCount   = 0;
+let bwHistory  = new Array(60).fill(0); // 60-point rolling bandwidth history
+let lastFragMs = 0;                     // RTT of last segment load
+let sessionStart = null;
+let fragLoadStart = {};                 // fragSn → performance.now()
+
+// DOM refs
+const video   = document.getElementById("video");
 const overlay = document.getElementById("overlay");
-const log = document.getElementById("event-log");
+const osd     = document.getElementById("osd");
 
-// ── Logging ─────────────────────────────────────────────────────────────────
-function appendLog(msg, type = "info") {
-  const now = new Date().toLocaleTimeString("en-GB", { hour12: false });
-  const entry = document.createElement("div");
-  entry.className = "log-entry";
-  entry.innerHTML = `<span class="log-time">${now}</span><span class="log-msg ${type}">${msg}</span>`;
-  log.prepend(entry);
-  // Keep max 100 lines
-  while (log.children.length > 100) log.lastChild.remove();
+// ── Presets ────────────────────────────────────────────────────────────────
+function setPreset(q) {
+  document.getElementById("stream-url").value = q === "master"
+    ? `${MINIO_PROXY}/${STREAM_KEY}/master.m3u8`
+    : `${MINIO_PROXY}/${STREAM_KEY}/${q}/index.m3u8`;
+}
+// Pre-fill
+document.getElementById("stream-url").value = `${MINIO_PROXY}/${STREAM_KEY}/master.m3u8`;
+
+// ── Log ─────────────────────────────────────────────────────────────────────
+function log(msg, type = "info") {
+  const el  = document.getElementById("event-log");
+  const now = new Date().toLocaleTimeString("en-GB", { hour12: false, fractionalSecondDigits: 1 });
+  const row = document.createElement("div");
+  row.className = "el-row";
+  row.innerHTML = `<span class="el-time">${now}</span><span class="el-msg ${type}">${msg}</span>`;
+  el.prepend(row);
+  while (el.children.length > 200) el.lastChild.remove();
 }
 
-// ── Presets ──────────────────────────────────────────────────────────────────
-function setPreset(quality) {
-  const input = document.getElementById("stream-url");
-  if (quality === "master") {
-    input.value = `${MINIO_BASE}/${DEFAULT_STREAM_KEY}/master.m3u8`;
-  } else {
-    input.value = `${MINIO_BASE}/${DEFAULT_STREAM_KEY}/${quality}/index.m3u8`;
-  }
+// ── Status ──────────────────────────────────────────────────────────────────
+function setStatus(label, state) { // state: idle|live|buffering|error
+  document.getElementById("hdr-label").textContent = label;
+  const dot = document.getElementById("hdr-dot");
+  dot.className = "status-dot" + (state && state !== "idle" ? " " + state : "");
 }
 
-// ── Quality ──────────────────────────────────────────────────────────────────
+// ── Quality buttons ──────────────────────────────────────────────────────────
+function buildQButtons(levels) {
+  const strip = document.getElementById("q-auto").parentElement;
+  strip.querySelectorAll(".q-btn:not(#q-auto)").forEach(b => b.remove());
+  levels.forEach((lvl, i) => {
+    const b = document.createElement("button");
+    b.className = "q-btn"; b.id = `q-${i}`;
+    b.textContent = lvl.height + "p";
+    b.onclick = () => setQuality(i);
+    document.getElementById("q-auto").after(b);
+  });
+}
 function setQuality(level) {
   if (!hls) return;
   hls.currentLevel = level;
-  document.querySelectorAll(".quality-btn").forEach(b => b.classList.remove("active"));
-  const btn = document.getElementById(level === -1 ? "q-auto" : `q-${level}`);
-  if (btn) btn.classList.add("active");
-  appendLog(`Quality set to ${level === -1 ? "Auto" : hls.levels[level]?.height + "p"}`, "info");
+  document.querySelectorAll(".q-btn").forEach(b => b.classList.remove("active"));
+  (document.getElementById(level === -1 ? "q-auto" : `q-${level}`) || {}).classList?.add("active");
+  log(`Quality → ${level === -1 ? "Auto ABR" : hls.levels[level]?.height + "p"}`, "dim");
 }
 
-function buildQualityButtons(levels) {
-  const row = document.getElementById("quality-row");
-  // Remove old quality buttons (keep label + auto)
-  [...row.querySelectorAll(".quality-btn:not(#q-auto)")].forEach(b => b.remove());
-  levels.forEach((level, i) => {
-    const btn = document.createElement("button");
-    btn.className = "quality-btn";
-    btn.id = `q-${i}`;
-    btn.textContent = `${level.height}p`;
-    btn.onclick = () => setQuality(i);
-    row.appendChild(btn);
-  });
+// ── Toggle controls ──────────────────────────────────────────────────────────
+function toggleOSD() {
+  osdVisible = !osdVisible;
+  osd.classList.toggle("visible", osdVisible);
+  document.getElementById("osd-toggle").classList.toggle("on", osdVisible);
+}
+function toggleMute() {
+  video.muted = !video.muted;
+  const btn = document.getElementById("mute-toggle");
+  btn.textContent = video.muted ? "🔇 Muted" : "🔊 Audio";
+  btn.classList.toggle("on", !video.muted);
+}
+function toggleFS() {
+  const wrap = document.getElementById("video-wrap");
+  if (!document.fullscreenElement) wrap.requestFullscreen().catch(console.warn);
+  else document.exitFullscreen().catch(console.warn);
+}
+function toggleLL() {
+  liveEdge = !liveEdge;
+  document.getElementById("ll-toggle").classList.toggle("on", liveEdge);
+  if (liveEdge && hls) { hls.startLoad(); hls.recoverMediaError?.(); }
+  log(liveEdge ? "⚡ Live-edge sync enabled" : "Live-edge sync off", "dim");
 }
 
-// ── Stats update loop ────────────────────────────────────────────────────────
+// ── Bandwidth chart ──────────────────────────────────────────────────────────
+function drawChart() {
+  const canvas = document.getElementById("bw-chart");
+  const ctx    = canvas.getContext("2d");
+  const W = canvas.offsetWidth, H = canvas.offsetHeight;
+  canvas.width = W * devicePixelRatio; canvas.height = H * devicePixelRatio;
+  ctx.scale(devicePixelRatio, devicePixelRatio);
+  ctx.clearRect(0,0,W,H);
+
+  const max = Math.max(...bwHistory, 1);
+  const pts = bwHistory.map((v, i) => ({ x: i / (bwHistory.length - 1) * W, y: H - (v / max) * (H - 6) }));
+
+  // Gradient fill
+  const grad = ctx.createLinearGradient(0, 0, 0, H);
+  grad.addColorStop(0, "rgba(34,211,238,0.3)");
+  grad.addColorStop(1, "rgba(34,211,238,0)");
+  ctx.beginPath();
+  ctx.moveTo(pts[0].x, H);
+  pts.forEach(p => ctx.lineTo(p.x, p.y));
+  ctx.lineTo(pts[pts.length-1].x, H);
+  ctx.fillStyle = grad; ctx.fill();
+
+  // Line
+  ctx.beginPath();
+  pts.forEach((p, i) => i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y));
+  ctx.strokeStyle = "var(--cyan)"; ctx.lineWidth = 1.5; ctx.stroke();
+
+  // Current value label
+  const cur = bwHistory[bwHistory.length-1];
+  ctx.fillStyle = "var(--muted)"; ctx.font = `${10 * devicePixelRatio}px Inter`;
+  ctx.fillText(`${(max/1000).toFixed(1)} Mbps peak`, 4 * devicePixelRatio, 12 * devicePixelRatio);
+}
+
+// ── Segment feed ─────────────────────────────────────────────────────────────
+function addSegRow(frag, loadTimeMs) {
+  const feed = document.getElementById("seg-feed");
+  const lvl  = hls && frag.level >= 0 ? hls.levels[frag.level] : null;
+  const qLabel = lvl ? (
+    lvl.height >= 1440 ? "2K" :
+    lvl.height >= 1080 ? "1080p" :
+    lvl.height >= 720  ? "720p" :
+    lvl.height >= 480  ? "480p" : "360p"
+  ) : "?";
+  const qClass = {
+    "2K":"q2k","1080p":"q1080p","720p":"q720p","480p":"q480p","360p":"q360p"
+  }[qLabel] || "q360p";
+
+  const row = document.createElement("div");
+  row.className = "seg-row";
+  const kb = frag.stats?.total ? `${(frag.stats.total/1024).toFixed(0)}KB` : "—";
+  const ms = loadTimeMs ? `${Math.round(loadTimeMs)}ms` : "—";
+  row.innerHTML = `
+    <span class="seg-q ${qClass}">${qLabel}</span>
+    <span class="seg-sn">sn#${frag.sn}</span>
+    <span class="seg-size">${kb}</span>
+    <span class="seg-time">${ms}</span>
+  `;
+  feed.prepend(row);
+  segCount++;
+  document.getElementById("seg-count-badge").textContent = `— ${segCount} total`;
+  while (feed.children.length > 40) feed.lastChild.remove();
+}
+
+// ── Latency calculation ───────────────────────────────────────────────────────
+// We estimate end-to-end latency as:
+//   (wallclock now) - (estimated time when OBS broadcast these frames)
+//
+// For HLS, the best proxy is the segment sequence number × segment duration
+// subtracted from the latest program datetime if available, or estimated
+// from the gap between video.currentTime and the live edge.
+//
+// Live edge = furthest buffered time; latency = live_edge - current_time + segment_dur
+function computeLatency() {
+  if (!hls || !video || !video.readyState) return null;
+
+  let latency = null;
+
+  // Method 1: hls.js latency (available in LL-HLS mode or when ProgramDateTime is in m3u8)
+  if (hls.latency != null && !isNaN(hls.latency)) {
+    latency = hls.latency;
+  }
+
+  // Method 2: live edge estimation — distance from live edge
+  if (latency == null && hls.liveSyncPosition != null) {
+    latency = hls.liveSyncPosition - video.currentTime;
+  }
+
+  // Method 3: buffer edge proxy (rough)
+  if (latency == null && video.buffered.length > 0) {
+    const edge = video.buffered.end(video.buffered.length - 1);
+    // In live HLS, we're behind the server by at least: (edge-currentTime) + ≈4-6s pipeline
+    // This is a minimum bound, not exact
+    latency = edge - video.currentTime + SEGMENT_DUR * 3;
+  }
+
+  return latency;
+}
+
+function updateLatencyUI(latSec) {
+  if (latSec == null || isNaN(latSec)) {
+    document.getElementById("lat-e2e").textContent = "—";
+    document.getElementById("lat-e2e").style.color = "var(--muted)";
+    return;
+  }
+  const s = latSec.toFixed(1) + "s";
+  const el = document.getElementById("lat-e2e");
+  el.textContent = s;
+
+  // Color coding
+  let color = "var(--green)";
+  if (latSec > 20) color = "var(--red)";
+  else if (latSec > 10) color = "var(--orange)";
+  else if (latSec > 5)  color = "var(--yellow)";
+  el.style.color = color;
+
+  // Bar (max 30s = 100%)
+  const pct = Math.min(100, (latSec / 30) * 100);
+  document.getElementById("lat-bar").style.width  = pct + "%";
+  document.getElementById("lat-bar").style.background = color;
+
+  // Sync offset (how far we are from the live edge)
+  const offset = hls?.liveSyncPosition != null
+    ? (hls.liveSyncPosition - video.currentTime).toFixed(1) + "s"
+    : "—";
+  document.getElementById("s-offset").textContent = offset;
+  document.getElementById("s-offset").className = "sc-value " + (
+    parseFloat(offset) > 8 ? "orange" :
+    parseFloat(offset) > 15 ? "red" : "green"
+  );
+
+  // Pipeline breakdown
+  const ingestMs   = 100;          // OBS→nginx: ~100ms (RTMP is very low latency)
+  const transcodeMs = 500;         // FFmpeg encoding delay: ~0.5s per GOP
+  const segMs      = SEGMENT_DUR * 1000;
+  const uploadMs   = lastFragMs > 0 ? lastFragMs : 200;
+  const bufMs      = video.buffered.length > 0
+    ? ((video.buffered.end(video.buffered.length - 1) - video.currentTime) * 1000)
+    : 0;
+  const totalMs = ingestMs + transcodeMs + segMs + uploadMs + bufMs;
+
+  function setPipe(id, valId, ms, color, label) {
+    document.getElementById(id).style.width = Math.min(100, (ms / totalMs) * 100) + "%";
+    document.getElementById(id).style.background = color;
+    document.getElementById(valId).textContent = label ?? (Math.round(ms) + "ms");
+  }
+  setPipe("pb-ingest",   "pv-ingest",   ingestMs,   "#7c3aed", "~100ms");
+  setPipe("pb-transcode","pv-transcode",transcodeMs,"#60a5fa", "~500ms");
+  setPipe("pb-segment",  "pv-segment",  segMs,      "#4ade80", SEGMENT_DUR + "s");
+  setPipe("pb-upload",   "pv-upload",   uploadMs,   "#fbbf24", Math.round(uploadMs) + "ms");
+  setPipe("pb-buffer",   "pv-buffer",   bufMs,      "#f97316", (bufMs/1000).toFixed(1) + "s");
+
+  document.getElementById("lat-freshness").textContent =
+    `— last updated ${new Date().toLocaleTimeString("en-GB", { hour12: false })}`;
+}
+
+// ── Main stats loop ───────────────────────────────────────────────────────────
+let statsInterval = null;
 function startStats() {
-  setInterval(() => {
-    if (!hls || !video) return;
+  if (statsInterval) clearInterval(statsInterval);
+  statsInterval = setInterval(() => {
+    if (!video || !hls) return;
+
+    // Buffer
     const buf = video.buffered.length
-      ? (video.buffered.end(video.buffered.length - 1) - video.currentTime).toFixed(1)
-      : "—";
-    document.getElementById("stat-buffer").textContent = buf;
+      ? (video.buffered.end(video.buffered.length - 1) - video.currentTime)
+      : 0;
+    const bufS = buf.toFixed(1) + "s";
+    document.getElementById("s-buf").textContent = bufS;
+    document.getElementById("s-buf").className = "sc-value " + (buf < 2 ? "orange" : buf < 1 ? "red" : "");
+    document.getElementById("pv-buffer").textContent = buf.toFixed(1) + "s";
 
-    const level = hls.currentLevel;
-    const levelInfo = level >= 0 ? hls.levels[level] : null;
-    document.getElementById("stat-level").textContent =
-      level === -1 ? "Auto" : (levelInfo ? `${levelInfo.height}p` : level);
+    // Latency
+    const lat = computeLatency();
+    updateLatencyUI(lat);
+    if (lat != null) {
+      document.getElementById("osd-lat").textContent = lat.toFixed(1) + "s";
+      document.getElementById("osd-lat").className = "osd-v" + (lat > 10 ? " warn" : lat > 20 ? " bad" : " good");
+    }
 
-    document.getElementById("stat-bitrate").textContent =
-      levelInfo ? Math.round((levelInfo.bitrate || 0) / 1000) : "—";
+    // Current quality level
+    const ci = hls.currentLevel;
+    const lvl = ci >= 0 ? hls.levels[ci] : null;
+    const levelText = lvl ? `${lvl.height}p` : "Auto";
+    document.getElementById("s-level").textContent = levelText;
+    document.getElementById("s-level-sub").textContent = lvl ? `${(lvl.bitrate/1000).toFixed(0)} kbps` : "auto";
+    document.getElementById("osd-q").textContent = levelText;
 
-    const videoEl = document.getElementById("video");
-    document.getElementById("stat-dropped").textContent =
-      videoEl.getVideoPlaybackQuality
-        ? videoEl.getVideoPlaybackQuality().droppedVideoFrames
-        : "—";
+    // Bandwidth estimate
+    const bwbps = hls.bandwidthEstimate || 0;
+    const bwMbps = (bwbps / 1e6).toFixed(2);
+    document.getElementById("s-bw").textContent = bwMbps;
+    document.getElementById("s-bw-sub").textContent = "Mbps";
+    document.getElementById("osd-bw").textContent = bwMbps + " Mbps";
+    bwHistory.push(bwbps); bwHistory.shift();
+    drawChart();
 
-    const latency = video.currentTime ? (Date.now() / 1000 - video.currentTime).toFixed(1) : "—";
-    document.getElementById("stat-latency").textContent = latency;
+    // Video playback quality
+    const vq = video.getVideoPlaybackQuality?.();
+    if (vq) {
+      const dropped = vq.droppedVideoFrames;
+      const decoded = vq.totalVideoFrames;
+      const corrupt = vq.corruptedVideoFrames ?? 0;
+      document.getElementById("s-drop").textContent   = dropped;
+      document.getElementById("s-drop").className     = "sc-value " + (dropped > 10 ? "red" : dropped > 0 ? "yellow" : "green");
+      document.getElementById("s-decoded").textContent = decoded;
+      document.getElementById("s-corrupt").textContent = corrupt;
+      document.getElementById("osd-drop").textContent  = dropped;
+      document.getElementById("osd-drop").className    = "osd-v " + (dropped > 10 ? "bad" : dropped > 0 ? "warn" : "");
+    }
+
+    // Buffer OSD
+    document.getElementById("osd-buf").textContent = bufS;
+    document.getElementById("osd-buf").className   = "osd-v " + (buf < 2 ? "warn" : "");
+
+    // Resolution from video element
+    const w = video.videoWidth, h = video.videoHeight;
+    if (w && h) {
+      document.getElementById("s-res").textContent = `${w}×${h}`;
+    }
+
+    // FPS from current level
+    const fps = lvl?.attrs?.["FRAME-RATE"] ?? (lvl?.height >= 1440 ? "60" : "30");
+    document.getElementById("s-fps").textContent = fps;
+    document.getElementById("osd-fps").textContent = fps;
+
+    // Seg load
+    if (lastFragMs > 0) {
+      const lms = Math.round(lastFragMs);
+      document.getElementById("s-segload").textContent = lms + "ms";
+      document.getElementById("s-segload").className   = "sc-value " + (lms > 800 ? "red" : lms > 400 ? "yellow" : "green");
+    }
+
+    // Codec
+    document.getElementById("s-codec").textContent = "H.264 / AAC";
+
   }, 1000);
 }
 
-// ── Play / Stop ──────────────────────────────────────────────────────────────
+// ── Stream control ────────────────────────────────────────────────────────────
 function loadStream() {
   const url = document.getElementById("stream-url").value.trim();
-  if (!url) { appendLog("Enter a stream URL first", "err"); return; }
+  if (!url) { log("Enter a URL first", "warn"); return; }
 
   stopStream();
-
-  setStatus("Connecting…", "yellow");
-  overlay.classList.remove("hidden");
-  overlay.querySelector(".overlay-icon").textContent = "⏳";
-  overlay.querySelector(".overlay-text").textContent = "Connecting to stream…";
+  sessionStart = Date.now();
+  rebufCount = 0; segCount = 0; lastFragMs = 0;
+  bwHistory.fill(0);
+  setStatus("Connecting…", "buffering");
+  overlay.classList.remove("gone");
+  overlay.querySelector(".ov-icon").textContent = "⏳";
+  overlay.querySelector(".ov-text").textContent = "Connecting…";
+  log(`Loading: ${url.split("/").slice(-2).join("/")}`, "info");
 
   if (Hls.isSupported()) {
     hls = new Hls({
-      lowLatencyMode: false,
-      backBufferLength: 30,
-      maxBufferLength:  30,
+      lowLatencyMode:       false,
+      backBufferLength:     30,
+      maxBufferLength:      30,
       liveSyncDurationCount: 3,
-      debug: false,
+      liveMaxLatencyDurationCount: 10,
+      enableWorker:         true,
+      debug:                false,
     });
 
     hls.loadSource(url);
     hls.attachMedia(video);
 
-    hls.on(Hls.Events.MANIFEST_PARSED, (event, data) => {
-      appendLog(`Manifest loaded — ${data.levels.length} quality level(s)`, "ok");
-      buildQualityButtons(data.levels);
-      overlay.classList.add("hidden");
-      setStatus("Playing", "green");
+    hls.on(Hls.Events.MANIFEST_PARSED, (_, d) => {
+      log(`✓ Manifest — ${d.levels.length} quality level(s)`, "ok");
+      buildQButtons(d.levels);
+      document.getElementById("s-codec").textContent = "H.264 / AAC";
+      overlay.classList.add("gone");
+      setStatus("Buffering…", "buffering");
       video.play().catch(console.warn);
     });
 
-    hls.on(Hls.Events.LEVEL_SWITCHED, (event, data) => {
-      const l = hls.levels[data.level];
-      appendLog(`Quality switched → ${l ? l.height + "p" : data.level}`, "info");
-      document.getElementById("stat-level").textContent = l ? l.height + "p" : data.level;
-      document.querySelectorAll(".quality-btn").forEach(b => b.classList.remove("active"));
-      const activeBtn = document.getElementById(`q-${data.level}`);
-      if (activeBtn) activeBtn.classList.add("active");
+    hls.on(Hls.Events.LEVEL_SWITCHED, (_, d) => {
+      const l = hls.levels[d.level];
+      const txt = l ? `${l.height}p` : d.level;
+      log(`⇄ Quality → ${txt} (${l ? (l.bitrate/1000).toFixed(0) + "kbps" : ""})`, "dim");
+      document.querySelectorAll(".q-btn").forEach(b => b.classList.remove("active"));
+      (document.getElementById(`q-${d.level}`) || {}).classList?.add("active");
     });
 
-    hls.on(Hls.Events.FRAG_LOADED, (event, data) => {
-      const q = data.frag.level >= 0 && hls.levels[data.frag.level]
-        ? hls.levels[data.frag.level].height + "p"
-        : "?";
-      appendLog(`Segment loaded sn=${data.frag.sn} q=${q} (${(data.stats.total/1024).toFixed(0)} KB)`, "info");
+    hls.on(Hls.Events.FRAG_LOAD_PROGRESS, (_, d) => {
+      if (d.stats?.trequest) fragLoadStart[d.frag.sn] = d.stats.trequest;
     });
 
-    hls.on(Hls.Events.ERROR, (event, data) => {
-      appendLog(`${data.type}: ${data.details} (fatal=${data.fatal})`, "err");
-      if (data.fatal) {
-        setStatus("Error", "red");
-        overlay.classList.remove("hidden");
-        overlay.querySelector(".overlay-icon").textContent = "⚠️";
-        overlay.querySelector(".overlay-text").textContent = `${data.details}`;
-        if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
-          appendLog("Network error — retrying…", "err");
-          hls.startLoad();
-        } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
-          hls.recoverMediaError();
-        } else {
-          stopStream();
-        }
+    hls.on(Hls.Events.FRAG_LOADED, (_, d) => {
+      const t0 = fragLoadStart[d.frag.sn];
+      lastFragMs = t0 ? (performance.now() - t0) : (d.stats?.tfirst ? d.stats.tfirst - d.stats.trequest : 0);
+      delete fragLoadStart[d.frag.sn];
+      addSegRow(d.frag, lastFragMs);
+    });
+
+    hls.on(Hls.Events.BUFFER_APPENDED, () => {
+      setStatus("Live", "live");
+    });
+
+    hls.on(Hls.Events.BUFFER_STALLED, () => {
+      rebufCount++;
+      document.getElementById("s-rebuffer").textContent = rebufCount;
+      log(`⚠ Buffer stall #${rebufCount}`, "warn");
+      setStatus("Buffering", "buffering");
+    });
+
+    hls.on(Hls.Events.BUFFER_FLUSHED, () => {
+      setStatus("Live", "live");
+    });
+
+    hls.on(Hls.Events.ERROR, (_, d) => {
+      if (d.fatal) {
+        log(`✗ Fatal: ${d.details}`, "err");
+        setStatus("Error", "error");
+        overlay.classList.remove("gone");
+        overlay.querySelector(".ov-icon").textContent = "⚠️";
+        overlay.querySelector(".ov-text").textContent = d.details;
+        if (d.type === Hls.ErrorTypes.NETWORK_ERROR) hls?.startLoad();
+        else if (d.type === Hls.ErrorTypes.MEDIA_ERROR) hls?.recoverMediaError();
+        else stopStream();
+      } else {
+        log(`⚠ ${d.details}`, "warn");
       }
     });
 
+    video.addEventListener("playing", () => setStatus("Live", "live"), { passive: true });
+    video.addEventListener("waiting", () => setStatus("Buffering", "buffering"), { passive: true });
+
   } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
-    // Safari native HLS
     video.src = url;
     video.addEventListener("canplay", () => {
-      overlay.classList.add("hidden");
-      setStatus("Playing", "green");
-      video.play().catch(console.warn);
+      overlay.classList.add("gone"); setStatus("Live", "live"); video.play().catch(console.warn);
     }, { once: true });
-    video.addEventListener("error", () => {
-      setStatus("Error", "red");
-      appendLog("Safari native HLS error", "err");
-    }, { once: true });
+    log("Using Safari native HLS", "dim");
   } else {
-    appendLog("HLS is not supported in this browser", "err");
+    log("HLS not supported in this browser", "err");
   }
 
-  appendLog(`Loading: ${url}`, "info");
+  startStats();
 }
 
 function stopStream() {
+  if (statsInterval) { clearInterval(statsInterval); statsInterval = null; }
   if (hls) { hls.destroy(); hls = null; }
-  video.removeAttribute("src");
-  video.load();
-  overlay.classList.remove("hidden");
-  overlay.querySelector(".overlay-icon").textContent = "📡";
-  overlay.querySelector(".overlay-text").textContent = "Enter a stream URL above and press Play";
-  setStatus("Idle");
-  document.getElementById("quality-row").querySelectorAll(".quality-btn:not(#q-auto)").forEach(b => b.remove());
+  video.src = ""; video.load();
+  overlay.classList.remove("gone");
+  overlay.querySelector(".ov-icon").textContent = "📡";
+  overlay.querySelector(".ov-text").textContent = "Enter a stream URL and press Play";
+  setStatus("Idle", "idle");
+  document.querySelectorAll(".q-btn:not(#q-auto)").forEach(b => b.remove());
   document.getElementById("q-auto").classList.add("active");
+  bwHistory.fill(0); drawChart();
+  ["s-res","s-fps","s-drop","s-decoded","s-corrupt","s-bw","s-level","s-buf","s-segload","s-offset","s-rebuffer","s-codec","lat-e2e"].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) { el.textContent = id === "s-rebuffer" ? "0" : "—"; el.className = "sc-value"; }
+  });
+  document.getElementById("lat-e2e").style.color = "var(--muted)";
+  ["osd-q","osd-buf","osd-lat","osd-bw","osd-fps","osd-drop"].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = "—";
+  });
+  log("Stream stopped", "dim");
 }
 
-function setStatus(text, color = "") {
-  const el = document.getElementById("stat-status");
-  el.textContent = text;
-  el.className = `stat-value ${color}`;
-}
-
-// Pre-fill the input with the default URL
-document.getElementById("stream-url").value =
-  `${MINIO_BASE}/${DEFAULT_STREAM_KEY}/master.m3u8`;
-
-startStats();
-appendLog("Player ready — press Play to load a stream", "info");
+// ── Init ──────────────────────────────────────────────────────────────────────
+drawChart();
+log("Castify Dev Player ready", "ok");
 </script>
-
 </body>
 </html>

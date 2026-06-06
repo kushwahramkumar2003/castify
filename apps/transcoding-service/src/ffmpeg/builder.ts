@@ -1,117 +1,147 @@
-import ffmpeg from "fluent-ffmpeg";
 import { join } from "node:path";
 import type { QualityProfile } from "../profiles.ts";
 import { config } from "../config.ts";
-import { logger } from "../logger.ts";
 
 // =============================================================================
-// FFmpeg binary setup
+// buildFfmpegArgs
 // =============================================================================
-// Uses a system-installed FFmpeg (Homebrew on macOS) instead of ffmpeg-static
-// because the static binary's native RTMP protocol handler is broken without
-// librtmp.  The Homebrew FFmpeg has full RTMP support.
-// =============================================================================
-ffmpeg.setFfmpegPath(config.FFMPEG_PATH);
-
-// =============================================================================
-// buildFfmpegCommand
-// =============================================================================
-// Builds a multi-quality HLS FFmpeg command from a single RTMP input.
+// Builds a RAW FFmpeg argument array for multi-quality HLS output.
 //
-// WHY RTMP DIRECT:
-// Pulling raw RTMP from nginx avoids the double-HLS relay (nginx HLS → FFmpeg
-// reads → FFmpeg writes HLS).  Frames arrive directly from the publisher with
-// ~20-50ms network latency + keyframe wait (one GOP = 2s) before the first
-// segment is written.
+// WHY NOT FLUENT-FFMPEG FOR MULTIPLE OUTPUTS:
+//   fluent-ffmpeg v2.x has a bug where output options (especially -map) bleed
+//   across multiple .addOutput() chains when combined with -filter_complex.
+//   The result is that only the LAST output in the chain produces segments —
+//   all previous outputs get wrong or missing mappings.
 //
-// Core idea: ONE FFmpeg process reads the RTMP stream once, then uses a
-// filter_complex "split" to fork the video into N parallel encoding chains.
-// Audio is re-encoded per output but is CPU-light compared to video.
+//   By building the args array ourselves we have 100% control over the exact
+//   command that executes.  The generated command is logged in full at startup
+//   so you can verify it in the service logs.
+//
+// ARCHITECTURE (single FFmpeg process, multiple outputs):
+//
+//   RTMP input
+//       │
+//       ▼
+//   [0:v] split=N ──┬── [v0] scale → 1080p ──► encode ──► HLS segments
+//                   ├── [v1] scale → 720p  ──► encode ──► HLS segments
+//                   ├── [v2] scale → 480p  ──► encode ──► HLS segments
+//                   └── [v3] scale → 360p  ──► encode ──► HLS segments
+//
+//   Audio is muxed with each video output independently (aac, stereo).
 // =============================================================================
 
-export interface FfmpegCommandOptions {
+export interface FfmpegCommandArgs {
   rtmpUrl: string;      // rtmp://localhost:1935/live/<stream-key>
-  tempDir: string;      // /tmp/castify-transcoding/<instanceId>/<streamKey>
+  tempDir: string;      // /private/tmp/castify-transcoding/<instanceId>/<streamKey>
   profiles: QualityProfile[];
 }
 
-export function buildFfmpegCommand(opts: FfmpegCommandOptions): ffmpeg.FfmpegCommand {
+/**
+ * Returns the FFmpeg binary path from config (falls back to system ffmpeg).
+ */
+export function getFfmpegPath(): string {
+  return config.FFMPEG_PATH;
+}
+
+/**
+ * Build a complete FFmpeg argument array for multi-quality HLS encoding.
+ * Returns { args: string[], cmdString: string } for logging and spawning.
+ */
+export function buildFfmpegArgs(opts: FfmpegCommandArgs): { args: string[]; cmdString: string } {
   const { rtmpUrl, tempDir, profiles } = opts;
   const n = profiles.length;
 
-  // ── Filter complex: split video, scale to each resolution ──────────────────
-  // e.g. for 3 qualities:
-  //   [0:v]split=3[v0][v1][v2];
-  //   [v0]scale=1280:720:... [v0out];
-  //   [v1]scale=854:480:... [v1out];
-  //   [v2]scale=640:360:... [v2out];
+  // ── Filter complex ─────────────────────────────────────────────────────────
+  // [0:v]split=N[v0][v1]...[vN-1]
+  // [v0]scale=W:H:force_original_aspect_ratio=decrease,scale=trunc(iw/2)*2:trunc(ih/2)*2[v0out]
+  // ...
   //
-  // force_original_aspect_ratio=decrease: letterbox to target without distortion.
-  //
-  // CRITICAL: scale dimensions can end up odd (e.g. 853 instead of 854) when
-  // the source isn't perfect 16:9.  x264 / yuv420p require width divisible by 2.
-  // Adding a second scale pass with `trunc(iw/2)*2` guarantees even output.
+  // force_original_aspect_ratio=decrease: never upscale (if source is 720p,
+  // asking for 1080p gives 720p). The second scale pass ensures even pixel
+  // dimensions (required by yuv420p / H.264 Main Profile).
   const splitOutputs = profiles.map((_, i) => `[v${i}]`).join("");
-  const splitFilter = `[0:v]split=${n}${splitOutputs}`;
+  const splitFilter  = `[0:v]split=${n}${splitOutputs}`;
   const scaleFilters = profiles.map(
     (p, i) =>
-      `[v${i}]scale=${p.width}:${p.height}:force_original_aspect_ratio=decrease,scale=trunc(iw/2)*2:trunc(ih/2)*2[v${i}out]`
+      `[v${i}]scale=${p.width}:${p.height}:force_original_aspect_ratio=decrease,` +
+      `scale=trunc(iw/2)*2:trunc(ih/2)*2[v${i}out]`
   );
-  const complexFilter = [splitFilter, ...scaleFilters].join(";");
+  const filterComplex = [splitFilter, ...scaleFilters].join(";");
 
-  let cmd = ffmpeg(rtmpUrl)
-    // ── Input options for RTMP pull ───────────────────────────────────────
-    // -rw_timeout 10M — socket I/O timeout in microseconds (10 seconds).
-    //                    NEVER use plain -timeout — it implies -rtmp_listen 1
-    //                    (server mode) and causes "Address already in use".
-    //
-    // FFmpeg 8.x handles RTMP live streams without any special flags.
-    // The stream is inherently live (nginx-rtmp only sends the current
-    // live buffer), so -rtmp_live, -fflags nobuffer, -flags low_delay
-    // are unnecessary and can cause parse errors on this FFmpeg version.
-    .inputOption("-rw_timeout", "30000000")
-    .complexFilter(complexFilter);
+  // ── Build args array ────────────────────────────────────────────────────────
+  // The args are ordered exactly as FFmpeg expects:
+  //   [global] [input options] -i <url> -filter_complex <...> \
+  //   [output0 options] <output0 file> \
+  //   [output1 options] <output1 file> \
+  //   ...
+  //
+  // CRITICAL: each output's options must come BEFORE its output file path,
+  // and must not contaminate the next output's options.  When building manually
+  // (vs fluent-ffmpeg) we guarantee this layout.
+  const args: string[] = [
+    // ── Global ──────────────────────────────────────────────────────────────
+    "-y",                         // overwrite output files without asking
 
-  // ── One output per quality profile ─────────────────────────────────────────
+    // ── Input options ────────────────────────────────────────────────────────
+    // -rw_timeout: socket I/O timeout in microseconds (30 seconds).
+    //   Use -rw_timeout NOT -timeout (which implies -rtmp_listen 1 = server mode).
+    "-rw_timeout", "30000000",
+
+    // Input URL
+    "-i", rtmpUrl,
+
+    // ── Filter complex ───────────────────────────────────────────────────────
+    "-filter_complex", filterComplex,
+  ];
+
+  // ── One output block per quality profile ───────────────────────────────────
   for (let i = 0; i < profiles.length; i++) {
-    const p = profiles[i]!;
+    const p      = profiles[i]!;
     const outDir = join(tempDir, p.label);
+    const gopSize = p.frameRate * 2; // 2-second GOP matches HLS segment duration
 
-    cmd = cmd
-      .addOutput(join(outDir, "index.m3u8"))
-      // Video mapping — the scaled output from filter_complex
-      .addOutputOption(`-map`, `[v${i}out]`)
-      // Audio mapping — re-encode shared audio track for each output
-      .addOutputOption(`-map`, `0:a?`)  // '?' = don't fail if no audio
-      // Video codec
-      .addOutputOption(`-c:v`, `libx264`)
-      .addOutputOption(`-b:v`, `${p.videoBitrateKbps}k`)
-      .addOutputOption(`-maxrate`, `${p.maxVideoBitrateKbps}k`)
-      .addOutputOption(`-bufsize`, `${p.bufSizeKbps}k`)
-      .addOutputOption(`-preset`, config.FFMPEG_PRESET)
-      .addOutputOption(`-profile:v`, `main`)   // H.264 Main Profile (broad compatibility)
-      .addOutputOption(`-sc_threshold`, `0`)   // Disable scene-cut detection (stable GOP)
-      .addOutputOption(`-g`, `${p.frameRate * 2}`) // GOP = 2× frame rate (2-second keyframe interval)
-      .addOutputOption(`-keyint_min`, `${p.frameRate}`)
-      .addOutputOption(`-r`, `${p.frameRate}`)
-      // Audio codec
-      .addOutputOption(`-c:a`, `aac`)
-      .addOutputOption(`-b:a`, `${p.audioBitrateKbps}k`)
-      .addOutputOption(`-ac`, `2`)      // Stereo
-      .addOutputOption(`-ar`, `44100`)  // Sample rate
-      // HLS muxer options
-      .addOutputOption(`-f`, `hls`)
-      .addOutputOption(`-hls_time`, `${config.HLS_SEGMENT_SECONDS}`)
-      .addOutputOption(`-hls_list_size`, `0`)  // 0 = keep ALL segments in playlist (for VOD)
-      .addOutputOption(`-hls_segment_type`, `mpegts`)
-      .addOutputOption(`-hls_flags`, `independent_segments+temp_file+delete_segments`)
-      //   independent_segments  — each .ts can be decoded standalone
-      //   temp_file             — FFmpeg writes <name>.ts.tmp then renames to <name>.ts
-      //                           so chokidar only sees complete files
-      //   delete_segments       — FFmpeg deletes old .ts files it no longer references
-      //                           (we've already uploaded them to MinIO at that point)
-      .addOutputOption(`-hls_segment_filename`, join(outDir, `seg%05d.ts`));
+    args.push(
+      // Video stream mapping — the scaled, labelled output from filter_complex
+      "-map",          `[v${i}out]`,
+      // Audio stream mapping — re-encode per output; '?' = skip if no audio
+      "-map",          "0:a?",
+
+      // ── Video codec ───────────────────────────────────────────────────────
+      "-c:v",          "libx264",
+      "-b:v",          `${p.videoBitrateKbps}k`,
+      "-maxrate",      `${p.maxVideoBitrateKbps}k`,
+      "-bufsize",      `${p.bufSizeKbps}k`,
+      "-preset",       config.FFMPEG_PRESET,
+      "-profile:v",   "main",        // H.264 Main Profile — broad device compatibility
+      "-level:v",     "4.0",         // Level 4.0 supports up to 1080p 30fps
+      "-sc_threshold", "0",           // disable scene-cut detection for stable GOP
+      "-g",            String(gopSize),
+      "-keyint_min",   String(p.frameRate),
+      "-r",            String(p.frameRate),
+      "-pix_fmt",      "yuv420p",    // required for Main Profile broad compatibility
+
+      // ── Audio codec ───────────────────────────────────────────────────────
+      "-c:a",          "aac",
+      "-b:a",          `${p.audioBitrateKbps}k`,
+      "-ac",           "2",           // stereo
+      "-ar",           "44100",
+
+      // ── HLS muxer ─────────────────────────────────────────────────────────
+      "-f",            "hls",
+      "-hls_time",     String(config.HLS_SEGMENT_SECONDS),
+      "-hls_list_size","0",           // keep ALL segments in playlist (needed for VOD)
+      "-hls_segment_type", "mpegts",
+      // independent_segments: each .ts can be decoded standalone (required for ABR)
+      // temp_file: FFmpeg writes <seg>.ts.tmp → renames → chokidar sees only complete files
+      // NOTE: do NOT use delete_segments — we manage cleanup ourselves after MinIO upload
+      "-hls_flags",    "independent_segments+temp_file",
+      "-hls_segment_filename", join(outDir, "seg%05d.ts"),
+
+      // Output file for this quality's playlist
+      join(outDir, "index.m3u8"),
+    );
   }
 
-  return cmd;
+  const cmdString = `${config.FFMPEG_PATH} ${args.join(" ")}`;
+  return { args, cmdString };
 }

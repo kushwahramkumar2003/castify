@@ -3,7 +3,6 @@ import { join } from "node:path";
 import type { StreamStartedEvent, TranscodingState, QualityLabel } from "@castify/types";
 import { config } from "../config.ts";
 import { logger } from "../logger.ts";
-import { buildFfmpegCommand } from "../ffmpeg/builder.ts";
 import { FfmpegProcess } from "../ffmpeg/process.ts";
 import { SegmentWatcher } from "../watcher/segmentWatcher.ts";
 import { resolveProfiles, buildMasterPlaylist } from "../profiles.ts";
@@ -41,6 +40,7 @@ export class StreamWorker {
 
   private ffmpegProcess: FfmpegProcess | null = null;
   private segmentWatcher: SegmentWatcher | null = null;
+  private heartbeat: ReturnType<typeof setInterval> | null = null;
   private tempDir: string;
   private segmentsUploaded = 0;
   private readonly profiles = resolveProfiles(config.FFMPEG_QUALITIES);
@@ -84,13 +84,13 @@ export class StreamWorker {
       await new Promise((r) => setTimeout(r, 2_000));
 
       const rtmpUrl = `${config.NGINX_RTMP_URL}/${config.NGINX_RTMP_APP}/${streamKey}`;
-      const cmd = buildFfmpegCommand({
+      const ffmpegOpts = {
         rtmpUrl,
         tempDir: this.tempDir,
         profiles: this.profiles,
-      });
+      };
 
-      this.ffmpegProcess = new FfmpegProcess(cmd, streamKey);
+      this.ffmpegProcess = new FfmpegProcess(ffmpegOpts, streamKey);
 
       this.ffmpegProcess.events.on("ffmpeg-error", (err: Error) => {
         logger.error({ err, streamKey: `${streamKey.slice(0, 8)}…` }, "FFmpeg error — marking worker as ERROR");
@@ -133,6 +133,27 @@ export class StreamWorker {
       this.ffmpegProcess.start();
       this.state = "TRANSCODING";
 
+      // 6. Heartbeat — log progress every 30 s so the terminal shows activity
+      //    (individual segment uploads are logged at debug level to avoid noise)
+      this.heartbeat = setInterval(() => {
+        if (this.state !== "TRANSCODING") return;
+        const elapsedMs  = Date.now() - this.startedAt.getTime();
+        const elapsedSec = Math.floor(elapsedMs / 1000);
+        const mm = Math.floor(elapsedSec / 60).toString().padStart(2, "0");
+        const ss = (elapsedSec % 60).toString().padStart(2, "0");
+        const perQuality = this.segmentWatcher?.countsPerQuality() ?? {};
+
+        logger.info(
+          {
+            streamKey:        `${streamKey.slice(0, 8)}…`,
+            segmentsUploaded: this.segmentsUploaded,
+            elapsed:          `${mm}:${ss}`,
+            perQuality,
+          },
+          "⚡ Transcoding heartbeat"
+        );
+      }, 30_000);
+
       logger.info(
         { streamId, streamKey: `${streamKey.slice(0, 8)}…`, rtmpUrl },
         "✅ StreamWorker TRANSCODING"
@@ -165,6 +186,9 @@ export class StreamWorker {
   // cleanup() — stop FFmpeg, stop watcher, remove temp dir
   // ---------------------------------------------------------------------------
   private async cleanup(graceful: boolean): Promise<void> {
+    // 0. Stop heartbeat
+    if (this.heartbeat) { clearInterval(this.heartbeat); this.heartbeat = null; }
+
     // 1. Stop FFmpeg (SIGINT → EXT-X-ENDLIST → exit)
     if (this.ffmpegProcess?.isRunning()) {
       await this.ffmpegProcess.stop();

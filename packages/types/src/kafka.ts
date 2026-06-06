@@ -12,7 +12,7 @@ export type TranscodingState =
 // ---------------------------------------------------------------------------
 // Quality profile used in FFmpeg output and MinIO path layout
 // ---------------------------------------------------------------------------
-export type QualityLabel = "1080p" | "720p" | "480p" | "360p";
+export type QualityLabel = "2k" | "1080p" | "720p" | "480p" | "360p";
 
 // ---------------------------------------------------------------------------
 // Kafka event: published by transcoding-service after each segment lands in MinIO

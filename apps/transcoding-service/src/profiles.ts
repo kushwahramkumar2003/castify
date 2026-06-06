@@ -34,6 +34,16 @@ export interface QualityProfile {
 }
 
 export const QUALITY_PROFILES: Record<QualityLabel, QualityProfile> = {
+  "2k": {
+    label: "2k",
+    width: 2560, height: 1440,
+    // 2K (1440p) — 8 Mbps video is the Twitch/YouTube recommended for 1440p60.
+    // Only enable if OBS is sending 1440p+ source and CPU can handle it.
+    // On M-series Mac: use 'fast' or 'medium' preset to avoid quality degradation.
+    videoBitrateKbps: 8_000, maxVideoBitrateKbps: 8_800, bufSizeKbps: 16_000,
+    audioBitrateKbps: 192,
+    frameRate: 60,
+  },
   "1080p": {
     label: "1080p",
     width: 1920, height: 1080,

@@ -348,6 +348,12 @@ services:
       - nginx_hls_segments:/tmp/hls
       # Dev HLS player — served at http://localhost:8080/player
       - ./hls-player:/etc/nginx/hls-player:ro
+      # Config mounts — so changes on host take effect with nginx -s reload
+      - ./nginx/hls.conf:/etc/nginx/conf.d/hls.conf:ro
+      - ./nginx/rtmp.conf:/etc/nginx/conf.d/rtmp.conf:ro
+      # Mount configs so host edits take effect immediately (nginx -s reload)
+      - ./nginx/hls.conf:/etc/nginx/conf.d/hls.conf:ro
+      - ./nginx/rtmp.conf:/etc/nginx/conf.d/rtmp.conf:ro
     networks:
       - castify-net
     healthcheck:

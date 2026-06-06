@@ -149,4 +149,9 @@ export class SegmentWatcher {
   totalSegments(): number {
     return [...this.segmentCounts.values()].reduce((a, b) => a + b, 0);
   }
+
+  // Per-quality segment counts (used by StreamWorker heartbeat log)
+  countsPerQuality(): Record<string, number> {
+    return Object.fromEntries(this.segmentCounts.entries());
+  }
 }

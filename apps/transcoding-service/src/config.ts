@@ -72,9 +72,17 @@ const env = z.object({
     .enum(["ultrafast", "superfast", "veryfast", "faster", "fast", "medium", "slow"])
     .default("veryfast"),
 
-  // Comma-separated quality tiers to produce.
-  // Fewer tiers = less CPU.  All four: "1080p,720p,480p,360p"
-  FFMPEG_QUALITIES: z.string().default("720p,480p,360p"),
+  // Comma-separated quality tiers to produce (resolved against profiles.ts).
+  // Available: "2k,1080p,720p,480p,360p"
+  // 2k   = 1440p 60fps  — 8 Mbps  — only if OBS source is 1440p+, very CPU heavy
+  // 1080p = 1080p 30fps — 5 Mbps  — good for desktop viewers
+  // 720p  = 720p 30fps  — 2.8 Mbps — default high quality
+  // 480p  = 480p 30fps  — 1.4 Mbps — mobile / weaker connections
+  // 360p  = 360p 30fps  — 0.6 Mbps — very low bandwidth
+  //
+  // Recommended for M-series Mac (local dev): "1080p,720p,480p,360p"
+  // Full 2K ladder (high CPU):               "2k,1080p,720p,480p,360p"
+  FFMPEG_QUALITIES: z.string().default("2k,1080p,720p,480p,360p"),
 
   // HLS segment duration in seconds — must match nginx rtmp.conf hls_fragment
   HLS_SEGMENT_SECONDS: z.coerce.number().default(2),

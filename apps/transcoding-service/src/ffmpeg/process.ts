@@ -1,117 +1,173 @@
+import { spawn, type ChildProcess } from "node:child_process";
 import { EventEmitter } from "node:events";
-import type ffmpeg from "fluent-ffmpeg";
 import { logger } from "../logger.ts";
+import { buildFfmpegArgs, getFfmpegPath } from "./builder.ts";
+import type { FfmpegCommandArgs } from "./builder.ts";
 
 // =============================================================================
-// FfmpegProcess — lifecycle wrapper around a running FFmpeg command
+// FfmpegProcess — lifecycle wrapper around a raw child_process.spawn() call
 // =============================================================================
-// Wraps fluent-ffmpeg's event model and exposes a clean Promise-based API.
+// WHY child_process.spawn() INSTEAD OF fluent-ffmpeg:
+//   fluent-ffmpeg v2.x has a multi-output bug where -map options bleed across
+//   outputs when combined with -filter_complex.  Only the LAST output in the
+//   chain produces segments; all others get wrong mappings.
 //
-// Design: we use an internal EventEmitter (not extending it) to avoid type
-// conflicts between fluent-ffmpeg's strict overloaded .on() signature and
-// Node's generic EventEmitter events (particularly "error").
+//   By using spawn() we have full control over the exact argument array and
+//   can verify the command in the logs.
 //
 // Events emitted on .events:
-//   'progress'  — periodic progress update from FFmpeg stderr
-//   'ffmpeg-error' — FFmpeg exited with an error
-//   'end'       — FFmpeg exited cleanly (stream ended or SIGINT sent)
+//   'progress'     — periodic progress update from FFmpeg stderr
+//   'ffmpeg-error' — FFmpeg exited with a non-zero code that is NOT a signal
+//   'end'          — FFmpeg exited cleanly (stream finished or SIGINT sent)
 // =============================================================================
 
 export interface FfmpegProgress {
   frames: number;
   fps: number;
   bitrateKbps: number;
-  timemark: string; // "00:01:32.5"
+  timemark: string;
 }
 
 export class FfmpegProcess {
-  // Separate EventEmitter avoids type conflicts with fluent-ffmpeg's overloads
   readonly events = new EventEmitter();
 
-  private readonly command: ffmpeg.FfmpegCommand;
+  private proc: ChildProcess | null = null;
   private running = false;
   private readonly streamKey: string;
+  private readonly opts: FfmpegCommandArgs;
+  private stderrBuf = "";  // accumulate partial lines
 
-  constructor(command: ffmpeg.FfmpegCommand, streamKey: string) {
-    this.command = command;
+  constructor(opts: FfmpegCommandArgs, streamKey: string) {
+    this.opts = opts;
     this.streamKey = streamKey;
   }
 
   // ---------------------------------------------------------------------------
-  // start() — attach FFmpeg event listeners and kick off encoding
+  // start() — spawn FFmpeg and wire up stdout/stderr handlers
   // ---------------------------------------------------------------------------
   start(): void {
     if (this.running) return;
     this.running = true;
 
-    this.command
-      .on("start", (cmdLine: string) => {
+    const { args, cmdString } = buildFfmpegArgs(this.opts);
+    const ffmpegBin = getFfmpegPath();
+
+    // Log the COMPLETE command (not truncated) so you can reproduce it manually
+    logger.info(
+      {
+        streamKey: `${this.streamKey.slice(0, 8)}…`,
+        cmd:       cmdString,
+      },
+      "FFmpeg process starting"
+    );
+
+    this.proc = spawn(ffmpegBin, args, {
+      stdio: ["ignore", "ignore", "pipe"],
+    });
+
+    // ── stderr line reader ──────────────────────────────────────────────────
+    this.proc.stderr!.setEncoding("utf8");
+    this.proc.stderr!.on("data", (chunk: string) => {
+      this.stderrBuf += chunk;
+      let nl: number;
+      while ((nl = this.stderrBuf.indexOf("\n")) !== -1) {
+        const line = this.stderrBuf.slice(0, nl).trimEnd();
+        this.stderrBuf = this.stderrBuf.slice(nl + 1);
+        this.handleStderrLine(line);
+      }
+    });
+
+    // ── exit handler ─────────────────────────────────────────────────────────
+    this.proc.on("close", (code, signal) => {
+      this.running = false;
+
+      const isIntentionalStop =
+        signal === "SIGINT"  ||
+        signal === "SIGTERM" ||
+        signal === "SIGKILL" ||
+        // FFmpeg writes "Exiting normally, received signal N." to stderr
+        // before closing; catch it by exit code too
+        code === 0 ||
+        code === 255; // FFmpeg exits 255 on SIGINT in some builds
+
+      if (isIntentionalStop || signal != null) {
         logger.info(
-          { streamKey: `${this.streamKey.slice(0, 8)}…`, cmdPreview: cmdLine.slice(0, 120) },
-          "FFmpeg process started"
+          { streamKey: `${this.streamKey.slice(0, 8)}…`, code, signal },
+          "FFmpeg stopped"
         );
-      })
-      .on("progress", (progress: { frames: number; currentFps: number; currentKbps: number; timemark: string }) => {
-        this.events.emit("progress", {
-          frames: progress.frames,
-          fps: progress.currentFps,
-          bitrateKbps: progress.currentKbps,
-          timemark: progress.timemark,
-        } satisfies FfmpegProgress);
-      })
-      .on("stderr", (line: string) => {
-        logger.info({ streamKey: `${this.streamKey.slice(0, 8)}…`, line }, "FFmpeg stderr");
-      })
-      .on("end", () => {
-        this.running = false;
-        logger.info({ streamKey: `${this.streamKey.slice(0, 8)}…` }, "FFmpeg process ended cleanly");
         this.events.emit("end");
-      })
-      .on("error", (err: Error) => {
-        this.running = false;
-        // Distinguish intentional stops from real errors.
-        // FFmpeg outputs "Exiting normally, received signal 2." (SIGINT = signal 2)
-        // NOT the word "SIGINT". Also handle SIGKILL ("signal 9") and "killed".
-        const isIntentionalStop =
-          err.message.includes("signal 2")       ||  // SIGINT from our stop()
-          err.message.includes("signal 9")       ||  // SIGKILL from our force-kill
-          err.message.includes("Exiting normally") || // FFmpeg's SIGINT message
-          err.message.includes("SIGINT")         ||  // some fluent-ffmpeg versions
-          err.message.includes("killed");             // SIGKILL alternate wording
+      } else {
+        const err = new Error(`FFmpeg exited with code ${code}`);
+        logger.error(
+          { streamKey: `${this.streamKey.slice(0, 8)}…`, code, signal },
+          "FFmpeg exited with error"
+        );
+        this.events.emit("ffmpeg-error", err);
+      }
+    });
 
-        if (isIntentionalStop) {
-          logger.info({ streamKey: `${this.streamKey.slice(0, 8)}…` }, "FFmpeg stopped by signal");
-          this.events.emit("end");
-        } else {
-          logger.error({ streamKey: `${this.streamKey.slice(0, 8)}…`, err }, "FFmpeg process error");
-          this.events.emit("ffmpeg-error", err);
-        }
-      });
-
-    this.command.run();
+    this.proc.on("error", (err) => {
+      this.running = false;
+      logger.error(
+        { streamKey: `${this.streamKey.slice(0, 8)}…`, err },
+        "FFmpeg spawn error"
+      );
+      this.events.emit("ffmpeg-error", err);
+    });
   }
 
   // ---------------------------------------------------------------------------
-  // stop() — gracefully terminate FFmpeg (SIGINT → EXT-X-ENDLIST → exit)
+  // handleStderrLine — parse FFmpeg's stderr output
+  // ---------------------------------------------------------------------------
+  private handleStderrLine(line: string): void {
+    if (!line) return;
+    const low = line.toLowerCase();
+
+    // Progress lines contain "frame=" and "fps=" — parse them
+    if (line.startsWith("frame=")) {
+      const frames    = parseInt(line.match(/frame=\s*(\d+)/)?.[1] ?? "0");
+      const fps       = parseFloat(line.match(/fps=\s*([\d.]+)/)?.[1] ?? "0");
+      const kbps      = parseFloat(line.match(/bitrate=\s*([\d.]+)/)?.[1] ?? "0");
+      const timemark  = line.match(/time=\s*([\d:.]+)/)?.[1] ?? "0:00:00.0";
+      this.events.emit("progress", { frames, fps, bitrateKbps: kbps, timemark } satisfies FfmpegProgress);
+      return; // don't log progress lines (very frequent)
+    }
+
+    // Log everything else (codec info, errors, warnings, segment open/close)
+    const level =
+      low.includes("error") || low.includes("invalid") || low.includes("failed")
+        ? "error"
+        : low.includes("warn")
+          ? "warn"
+          : "debug"; // use debug for routine HLS muxer lines
+
+    if (level === "error") {
+      logger.error({ streamKey: `${this.streamKey.slice(0, 8)}…`, line }, "FFmpeg error");
+    } else if (level === "warn") {
+      logger.warn({ streamKey: `${this.streamKey.slice(0, 8)}…`, line }, "FFmpeg warn");
+    } else {
+      // Log at debug so it doesn't flood info logs but IS visible with LOG_LEVEL=debug
+      logger.debug({ streamKey: `${this.streamKey.slice(0, 8)}…`, line }, "FFmpeg");
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // stop() — send SIGINT for graceful shutdown (FFmpeg writes EXT-X-ENDLIST)
   // ---------------------------------------------------------------------------
   stop(timeoutMs = 8_000): Promise<void> {
     return new Promise((resolve) => {
-      if (!this.running) { resolve(); return; }
+      if (!this.running || !this.proc) { resolve(); return; }
 
       const cleanup = () => { clearTimeout(forceKill); resolve(); };
       this.events.once("end", cleanup);
       this.events.once("ffmpeg-error", cleanup);
 
-      try {
-        this.command.kill("SIGINT");
-      } catch {
-        resolve();
-        return;
-      }
+      // SIGINT lets FFmpeg finalize the last HLS segment and write EXT-X-ENDLIST
+      this.proc.kill("SIGINT");
 
       const forceKill = setTimeout(() => {
         logger.warn({ streamKey: `${this.streamKey.slice(0, 8)}…` }, "FFmpeg SIGKILL (timeout)");
-        try { this.command.kill("SIGKILL"); } catch { /* gone */ }
+        this.proc?.kill("SIGKILL");
         resolve();
       }, timeoutMs);
     });

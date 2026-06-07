@@ -4,29 +4,7 @@ import { join } from "node:path";
 
 // =============================================================================
 // Environment configuration — validated at startup with Zod.
-// If any required variable is missing the service exits immediately with a
-// clear error message listing exactly what is wrong.
 // =============================================================================
-
-// ---------------------------------------------------------------------------
-// envBool — correct boolean parsing for environment variables.
-//
-// WHY NOT z.coerce.boolean():
-//   z.coerce.boolean() calls JavaScript's Boolean() constructor.
-//   Boolean("false") === true  ← any non-empty string is truthy in JS!
-//   So MINIO_USE_SSL=false in .env would be parsed as TRUE. Wrong.
-//
-// This helper treats only "true" / "1" / true as truthy.
-// Everything else ("false", "0", "", undefined) is falsy.
-// ---------------------------------------------------------------------------
-const envBool = (defaultVal: boolean) =>
-  z
-    .preprocess(
-      (v) => v === "true" || v === "1" || v === true,
-      z.boolean()
-    )
-    .default(defaultVal);
-
 const env = z.object({
   // ── Service identity ───────────────────────────────────────────────────────
   PORT:        z.coerce.number().default(3002),
@@ -53,16 +31,7 @@ const env = z.object({
   NGINX_RTMP_APP: z.string().default("live"),
 
   // Path to the FFmpeg binary. Defaults to Homebrew-installed ffmpeg on macOS.
-  // The ffmpeg-static package lacks librtmp; use a system ffmpeg instead.
   FFMPEG_PATH: z.string().default("/opt/homebrew/bin/ffmpeg"),
-
-  // ── MinIO ─────────────────────────────────────────────────────────────────
-  MINIO_ENDPOINT:   z.string().default("localhost"),
-  MINIO_PORT:       z.coerce.number().default(9100),
-  MINIO_USE_SSL:    envBool(false),   // z.coerce.boolean() would parse "false" as true!
-  MINIO_ACCESS_KEY: z.string().default("castify"),
-  MINIO_SECRET_KEY: z.string().default("castify123"),
-  MINIO_BUCKET:     z.string().default("hls-segments"),
 
   // ── FFmpeg encoding ────────────────────────────────────────────────────────
   // Preset controls encode speed vs compression quality trade-off.

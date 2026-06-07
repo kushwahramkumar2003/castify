@@ -87,6 +87,18 @@
     @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
     .status-label { font-size: 0.78rem; font-weight: 600; color: var(--muted); }
 
+    /* ── Local clock ─────────────────────────────── */
+    .local-clock {
+      display: flex; align-items: baseline; gap: 0;
+      padding: 4px 12px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--r-sm);
+      font-family: var(--mono);
+    }
+    .clock-time { font-size: 0.95rem; font-weight: 600; color: var(--cyan); letter-spacing: 0.02em; }
+    .clock-ms  { font-size: 0.72rem; font-weight: 500; color: var(--accent2); }
+
     /* ── Main & Sidebar layout ───────────────────── */
     .main-col {
       display: flex; flex-direction: column; gap: 12px;
@@ -339,6 +351,11 @@
     <div class="status-dot" id="hdr-dot"></div>
     <span class="status-label" id="hdr-label">Idle</span>
   </div>
+
+  <div class="local-clock" id="local-clock">
+    <span class="clock-time" id="clock-time">--:--:--</span>
+    <span class="clock-ms" id="clock-ms">.000</span>
+  </div>
 </header>
 
 <!-- ── Main column ─────────────────────────────────── -->
@@ -538,7 +555,10 @@
 <script>
 // ── Config ─────────────────────────────────────────────────────────────────
 const STREAM_KEY  = "local-dev-key-streamer-01";
-const MINIO_PROXY = "http://localhost:8080/minio/hls-segments/live";
+
+// CloudFront URL — swap the stream key above to watch any live stream.
+// Local dev without AWS: use "http://localhost:8080/minio/hls-segments/live"
+const BASE_URL = "https://dgc2061nvldd1.cloudfront.net/live";
 const SEGMENT_DUR = 2; // seconds per HLS segment
 
 // ── State ──────────────────────────────────────────────────────────────────
@@ -560,11 +580,11 @@ const osd     = document.getElementById("osd");
 // ── Presets ────────────────────────────────────────────────────────────────
 function setPreset(q) {
   document.getElementById("stream-url").value = q === "master"
-    ? `${MINIO_PROXY}/${STREAM_KEY}/master.m3u8`
-    : `${MINIO_PROXY}/${STREAM_KEY}/${q}/index.m3u8`;
+    ? `${BASE_URL}/${STREAM_KEY}/master.m3u8`
+    : `${BASE_URL}/${STREAM_KEY}/${q}/index.m3u8`;
 }
 // Pre-fill
-document.getElementById("stream-url").value = `${MINIO_PROXY}/${STREAM_KEY}/master.m3u8`;
+document.getElementById("stream-url").value = `${BASE_URL}/${STREAM_KEY}/master.m3u8`;
 
 // ── Log ─────────────────────────────────────────────────────────────────────
 function log(msg, type = "info") {
@@ -968,6 +988,22 @@ function loadStream() {
 
   startStats();
 }
+
+// ── Live clock ──────────────────────────────────────────────────────────
+function startClock() {
+  function tick() {
+    const now = new Date();
+    const hh = String(now.getHours()).padStart(2, "0");
+    const mm = String(now.getMinutes()).padStart(2, "0");
+    const ss = String(now.getSeconds()).padStart(2, "0");
+    const ms = String(now.getMilliseconds()).padStart(3, "0");
+    document.getElementById("clock-time").textContent = `${hh}:${mm}:${ss}`;
+    document.getElementById("clock-ms").textContent = `.${ms}`;
+  }
+  tick();
+  setInterval(tick, 20);
+}
+startClock();
 
 function stopStream() {
   if (statsInterval) { clearInterval(statsInterval); statsInterval = null; }

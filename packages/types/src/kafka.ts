@@ -15,19 +15,23 @@ export type TranscodingState =
 export type QualityLabel = "2k" | "1080p" | "720p" | "480p" | "360p";
 
 // ---------------------------------------------------------------------------
-// Kafka event: published by transcoding-service after each segment lands in MinIO
-// Consumers: hls-packager, analytics-service
+// Kafka event: published by transcoding-service when a new HLS segment is written
+// Consumers: hls-packager (uploads to storage), analytics-service
 // ---------------------------------------------------------------------------
 export interface VideoSegmentReadyEvent {
   streamId: string;
   userId: string;
   streamKey: string;
   quality: QualityLabel;
-  segmentIndex: number;  // monotonically increasing per quality track
-  segmentKey: string;    // MinIO object key: live/<streamKey>/<quality>/seg00042.ts
-  durationMs: number;    // segment duration in milliseconds (≈2000)
-  timestamp: string;     // ISO 8601 — when the segment was uploaded
-  isFinal: boolean;      // true on the last segment when stream ends
+  segmentIndex: number;       // monotonically increasing per quality track
+  localSegmentPath: string;   // /private/tmp/castify-transcoding/../720p/seg00042.ts
+  localPlaylistPath: string;  // /private/tmp/castify-transcoding/../720p/index.m3u8
+  segmentKey: string;         // object key: live/<streamKey>/<quality>/seg00042.ts
+  durationMs: number;         // segment duration in milliseconds (≈2000)
+  timestamp: string;          // ISO 8601
+  isFinal: boolean;           // true on the last segment when stream ends
+  isMaster: boolean;          // true for the master.m3u8 "first segment" event
+  masterPlaylist?: string;    // raw master playlist content (only on startup)
 }
 
 export interface StreamKeyValidation {

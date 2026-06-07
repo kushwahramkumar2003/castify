@@ -1,0 +1,306 @@
+// =============================================================================
+// Castify — Prisma Schema
+// =============================================================================
+// Single source of truth for all PostgreSQL entities across every service.
+//
+// Services consuming this schema:
+//   auth-service           — User, StreamKey, RefreshToken
+//   metadata-service       — Stream, Category
+//   notification-service   — Notification, NotificationPreference, Subscription
+//   moderation-service     — ChannelBan, BannedWord, ChatTimeout
+//   vod-service            — Vod, Clip, ClipRequest
+//   analytics-service      — (uses ClickHouse, not Postgres — not in this schema)
+//   chat-service           — (uses Redis, not Postgres — not in this schema)
+//   presence-service       — (uses Redis, not Postgres — not in this schema)
+//   reaction-service       — (uses Redis, not Postgres — not in this schema)
+//
+// Enum conventions:
+//   Database-native enums stay in PostgreSQL (e.g. VodStatus, ClipType).
+//   String enums in TypeScript (e.g. QualityLabel) are validated at the
+//   application layer — they stay as varchar/text in Postgres.
+// =============================================================================
+
+generator client {
+  provider        = "prisma-client"
+  output          = "../generated/prisma"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  extensions = [uuidOssp(map: "uuid-ossp"), pgTrgm(map: "pg_trgm")]
+}
+
+enum VodStatus {
+  PENDING
+  PROCESSING
+  READY
+  FAILED
+}
+
+enum ClipStatus {
+  PROCESSING
+  READY
+  FAILED
+}
+
+enum NotificationType {
+  STREAM_STARTED
+  STREAM_ENDED
+  CLIP_CREATED
+  FOLLOW
+  UNFOLLOW
+  SYSTEM
+}
+
+model User {
+  id           String    @id @default(uuid()) @db.Uuid
+  username     String    @unique @db.VarChar(30)
+  email        String?   @unique @db.VarChar(255)
+  passwordHash String    @db.VarChar(60)          // bcrypt hash (60 chars)
+  displayName  String?   @db.VarChar(50)
+  avatarUrl    String?   @db.VarChar(500)
+  bio          String?   @db.VarChar(300)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  // Relations
+  streamKeys              StreamKey[]
+  streams                 Stream[]
+  refreshTokens           RefreshToken[]
+  notifications           Notification[]
+  notificationPreferences NotificationPreference?
+  subscriptions           Subscription[]           @relation("Subscriber")
+  subscribers             Subscription[]           @relation("Streamer")
+  bansReceived            ChannelBan[]             @relation("BannedUser")
+  bansIssued              ChannelBan[]             @relation("BannedBy")
+  timeouts                ChatTimeout[]            @relation("TimedOutUser")
+  timeoutsIssued          ChatTimeout[]            @relation("CreatedBy")
+  clipsRequested          Clip[]
+  vods                    Vod[]
+
+  @@index([email])
+  @@index([username])
+  @@index([createdAt])
+  @@map("users")
+}
+
+model StreamKey {
+  id        String   @id @default(uuid()) @db.Uuid
+  key       String   @db.VarChar(64) @unique   // random hex string (nginx stream key)
+  
+  userId    String   @db.Uuid
+  streamId  String   @db.VarChar(50)        // e.g. "stream-0001-0000-0000-000000000001"
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([streamId])
+  @@map("stream_keys")
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @db.Uuid
+  token     String   @unique @db.VarChar(500)  // JWT refresh token
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([token])
+  @@index([expiresAt])
+  @@map("refresh_tokens")
+}
+
+model Category {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String   @unique @db.VarChar(50)
+  slug      String   @unique @db.VarChar(50)
+  createdAt DateTime @default(now())
+
+  streams Stream[]
+
+  @@map("categories")
+}
+
+model Stream {
+  id            String   @id @db.VarChar(50)  // e.g. "stream-0001-0000-0000-000000000001"
+  userId        String   @db.Uuid
+  title         String?  @db.VarChar(100)
+  categoryId    String?  @db.Uuid
+  thumbnailUrl  String?  @db.VarChar(500)
+  language      String?  @db.VarChar(5)       // ISO 639-1: "en", "hi", "ja"
+  tags          String[] @db.VarChar(30)       // max 10 tags, each max 30 chars
+  isLive        Boolean  @default(false)
+  startedAt     DateTime?
+  endedAt       DateTime?
+  durationSecs  Int?                           // computed when stream ends
+  peakViewers   Int?                           // computed from analytics
+  totalViews    Int?                           // computed from analytics
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category   Category?  @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  vods       Vod[]
+  clips      Clip[]
+  channelBans ChannelBan[]
+  bannedWords BannedWord[]
+  chatTimeouts ChatTimeout[]
+
+  @@index([userId])
+  @@index([categoryId])
+  @@index([isLive])
+  @@index([startedAt])
+  @@map("streams")
+}
+model Vod {
+  id              String    @id @default(uuid()) @db.Uuid
+  streamId        String    @db.VarChar(50)
+  userId          String    @db.Uuid
+  title           String?   @db.VarChar(200)
+  playlistUrl     String?   @db.VarChar(500)  // S3 key: vod-archive/<vodId>/index.m3u8
+  durationSecs    Int?
+  thumbnailUrl    String?   @db.VarChar(500)
+  status          VodStatus @default(PENDING)
+  errorMessage    String?   @db.VarChar(500)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  stream Stream  @relation(fields: [streamId], references: [id], onDelete: Cascade)
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  clips  Clip[]
+
+  @@index([streamId])
+  @@index([userId])
+  @@index([status])
+  @@map("vods")
+}
+
+model Clip {
+  id              String     @id @default(uuid()) @db.Uuid
+  vodId           String     @db.Uuid
+  streamId        String     @db.VarChar(50)
+  requestedByUserId String   @db.Uuid
+  title           String?    @db.VarChar(200)
+  startOffsetSecs Int
+  endOffsetSecs   Int
+  clipUrl         String?    @db.VarChar(500)  // S3 key
+  status          ClipStatus @default(PROCESSING)
+  errorMessage    String?    @db.VarChar(500)
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  vod          Vod    @relation(fields: [vodId], references: [id], onDelete: Cascade)
+  stream       Stream @relation(fields: [streamId], references: [id], onDelete: Cascade)
+  requestedBy  User   @relation(fields: [requestedByUserId], references: [id], onDelete: Cascade)
+
+  @@index([vodId])
+  @@index([streamId])
+  @@index([requestedByUserId])
+  @@map("clips")
+}
+
+model Notification {
+  id        String           @id @default(uuid()) @db.Uuid
+  userId    String           @db.Uuid
+  type      NotificationType
+  title     String           @db.VarChar(200)
+  body      String           @db.VarChar(1000)
+  streamId  String?          @db.VarChar(50)
+  vodId     String?          @db.Uuid
+  isRead    Boolean          @default(false)
+  createdAt DateTime         @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead])
+  @@index([createdAt])
+  @@map("notifications")
+}
+
+model NotificationPreference {
+  id              String  @id @default(uuid()) @db.Uuid
+  userId          String  @unique @db.Uuid
+  emailEnabled    Boolean @default(true)
+  pushEnabled     Boolean @default(true)
+  inAppEnabled    Boolean @default(true)
+  streamStarted   Boolean @default(true)
+  streamEnded     Boolean @default(true)
+  clipCreated     Boolean @default(false)
+  followActivity  Boolean @default(true)
+  updatedAt       DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("notification_preferences")
+}
+
+model Subscription {
+  id               String   @id @default(uuid()) @db.Uuid
+  subscriberUserId String   @db.Uuid
+  streamerUserId   String   @db.Uuid
+  createdAt        DateTime @default(now())
+
+  subscriber User @relation("Subscriber", fields: [subscriberUserId], references: [id], onDelete: Cascade)
+  streamer   User @relation("Streamer", fields: [streamerUserId], references: [id], onDelete: Cascade)
+
+  @@unique([subscriberUserId, streamerUserId])
+  @@index([subscriberUserId])
+  @@index([streamerUserId])
+  @@map("subscriptions")
+}
+
+model ChannelBan {
+  id          String    @id @default(uuid()) @db.Uuid
+  streamId    String    @db.VarChar(50)
+  bannedUserId String   @db.Uuid
+  bannedById  String    @db.Uuid
+  reason      String?   @db.VarChar(500)
+  expiresAt   DateTime?
+  createdAt   DateTime  @default(now())
+
+  stream    Stream @relation(fields: [streamId], references: [id], onDelete: Cascade)
+  bannedUser User  @relation("BannedUser", fields: [bannedUserId], references: [id], onDelete: Cascade)
+  bannedBy   User  @relation("BannedBy", fields: [bannedById], references: [id], onDelete: Cascade)
+
+  @@unique([streamId, bannedUserId])
+  @@index([bannedUserId])
+  @@index([streamId])
+  @@map("channel_bans")
+}
+
+model BannedWord {
+  id        String   @id @default(uuid()) @db.Uuid
+  streamId  String?  @db.VarChar(50)   // null = global banned word
+  word      String   @db.VarChar(50)
+  createdAt DateTime @default(now())
+
+  stream Stream? @relation(fields: [streamId], references: [id], onDelete: Cascade)
+
+  @@unique([streamId, word])
+  @@index([streamId])
+  @@map("banned_words")
+}
+
+model ChatTimeout {
+  id            String   @id @default(uuid()) @db.Uuid
+  streamId      String   @db.VarChar(50)
+  userId        String   @db.Uuid
+  durationSecs  Int
+  expiresAt     DateTime
+  createdById   String   @db.Uuid
+  createdAt     DateTime @default(now())
+
+  stream    Stream @relation(fields: [streamId], references: [id], onDelete: Cascade)
+  user      User   @relation("TimedOutUser", fields: [userId], references: [id], onDelete: Cascade)
+  createdBy User   @relation("CreatedBy", fields: [createdById], references: [id], onDelete: Cascade)
+
+  @@index([streamId, userId])
+  @@index([expiresAt])
+  @@map("chat_timeouts")
+}

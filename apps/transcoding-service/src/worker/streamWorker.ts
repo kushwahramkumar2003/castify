@@ -1,12 +1,11 @@
 import { mkdir, rm } from "node:fs/promises";
-import { join } from "node:path";
+import { join, basename } from "node:path";
 import type { StreamStartedEvent, TranscodingState, QualityLabel } from "@castify/types";
 import { config } from "../config.ts";
 import { logger } from "../logger.ts";
 import { FfmpegProcess } from "../ffmpeg/process.ts";
 import { SegmentWatcher } from "../watcher/segmentWatcher.ts";
 import { resolveProfiles, buildMasterPlaylist } from "../profiles.ts";
-import { uploadText } from "../storage/minio.ts";
 import { publishSegmentReady } from "../kafka/producer.ts";
 
 // =============================================================================
@@ -47,7 +46,9 @@ export class StreamWorker {
 
   constructor(private readonly event: StreamStartedEvent) {
     this.qualities = this.profiles.map((p) => p.label);
-    // Unique temp dir: /tmp/.../ts-abc123/local-dev-key-streamer-01
+    // Temp dir: /private/tmp/castify-transcoding/<instanceId>/<streamKey>
+    // The instance ID is only used as a namespace on the same host — the
+    // actual path is published in Kafka events so hls-packager can find it.
     this.tempDir = join(config.TEMP_DIR, config.INSTANCE_ID, event.streamKey);
   }
 
@@ -69,11 +70,25 @@ export class StreamWorker {
         this.profiles.map((p) => mkdir(join(this.tempDir, p.label), { recursive: true }))
       );
 
-      // 2. Write the ABR master playlist to MinIO NOW (before first segment)
-      //    Viewers can get the URL immediately and wait for quality playlists to appear
+      // 2. Publish a "master" segment ready event so hls-packager knows
+      //    to upload the master playlist and start watching
       const masterPlaylist = buildMasterPlaylist(this.profiles);
-      await uploadText(masterPlaylist, `live/${streamKey}/master.m3u8`);
-      logger.info({ streamKey: `${streamKey.slice(0, 8)}…` }, "Master playlist uploaded");
+      void publishSegmentReady({
+        streamId,
+        userId,
+        streamKey,
+        quality:    this.qualities[0]!,
+        segmentIndex: -1,                     // -1 = master playlist, not a real segment
+        localSegmentPath:   "",               // not a real segment
+        localPlaylistPath:  "",
+        segmentKey: `live/${streamKey}/master.m3u8`,
+        durationMs: 0,
+        timestamp:  new Date().toISOString(),
+        isFinal:    false,
+        isMaster:   true,
+        masterPlaylist,
+      });
+      logger.info({ streamKey: `${streamKey.slice(0, 8)}…` }, "Master playlist event published");
 
       // 3. Wait for RTMP stream to stabilize, then build FFmpeg command
       //
@@ -110,20 +125,25 @@ export class StreamWorker {
         this.tempDir,
         streamKey,
         this.profiles,
-        ({ quality, segmentKey, segmentIndex }) => {
+        ({ quality, segmentIndex, localSegmentPath, localPlaylistPath }) => {
           this.segmentsUploaded++;
 
-          // Publish video.segment.ready Kafka event
+          const segmentKey = `live/${streamKey}/${quality}/${basename(localSegmentPath)}`;
+
+          // Publish video.segment.ready Kafka event — hls-packager will upload
           void publishSegmentReady({
             streamId,
             userId,
             streamKey,
             quality: quality as QualityLabel,
             segmentIndex,
+            localSegmentPath,
+            localPlaylistPath,
             segmentKey,
             durationMs: config.HLS_SEGMENT_SECONDS * 1000,
             timestamp: new Date().toISOString(),
             isFinal: false,
+            isMaster: false,
           });
         }
       );
@@ -197,12 +217,17 @@ export class StreamWorker {
     // 2. Stop the file watcher
     await this.segmentWatcher?.stop();
 
-    // 3. Remove temp dir (segments are already in MinIO)
-    try {
-      await rm(this.tempDir, { recursive: true, force: true });
-    } catch {
-      // Non-fatal
-    }
+    // 3. Remove temp dir after a short delay — hls-packager may still be
+    //    processing Kafka events for the last segments. 5 seconds gives
+    //    the Kafka consumer time to pick up and process inflight events.
+    //    After the delay, remaining files are hls-packager's responsibility.
+    setTimeout(async () => {
+      try {
+        await rm(this.tempDir, { recursive: true, force: true });
+      } catch {
+        // Non-fatal
+      }
+    }, 5_000);
 
     if (graceful) {
       logger.info(

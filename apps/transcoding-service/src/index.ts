@@ -2,7 +2,6 @@ import { createApp } from "./app.ts";
 import { config } from "./config.ts";
 import { logger } from "./logger.ts";
 import { WorkerPool } from "./worker/workerPool.ts";
-import { ensureBucket } from "./storage/minio.ts";
 import { connectConsumer, disconnectConsumer } from "./kafka/consumer.ts";
 import { connectProducer, disconnectProducer } from "./kafka/producer.ts";
 
@@ -30,16 +29,7 @@ const app  = createApp(pool);
 async function start(): Promise<void> {
   logger.info({ instanceId: config.INSTANCE_ID }, "Starting transcoding-service…");
 
-  // 1. MinIO — ensure bucket exists before anything tries to upload
-  try {
-    await ensureBucket();
-    logger.info({ bucket: config.MINIO_BUCKET }, "MinIO bucket ready");
-  } catch (err) {
-    logger.fatal({ err }, "Cannot connect to MinIO — exiting");
-    process.exit(1);
-  }
-
-  // 2. Kafka producer
+  // 1. Kafka producer
   try {
     await connectProducer();
   } catch (err) {
@@ -47,7 +37,7 @@ async function start(): Promise<void> {
     process.exit(1);
   }
 
-  // 3. Kafka consumer (starts listening immediately)
+  // 2. Kafka consumer (starts listening immediately)
   try {
     await connectConsumer(pool);
   } catch (err) {

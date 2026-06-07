@@ -8,5 +8,11 @@
   },
   "peerDependencies": {
     "typescript": "^5"
+  },
+  "dependencies": {
+    "@castify/config": "workspace:*",
+    "@castify/logger": "workspace:*",
+    "@castify/common": "workspace:*",
+    "@castify/db": "workspace:*"
   }
 }

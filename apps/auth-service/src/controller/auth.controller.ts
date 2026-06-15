@@ -12,6 +12,11 @@ import { prisma } from "@castify/db";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { config } from "../config";
+import {
+  type RefreshPayload,
+  COOKIE_BASE,
+  issueTokenPair,
+} from "../utils/auth.utils";
 
 export const signup = asyncHandler(async (req: Request, res: Response) => {
   const parsed = signupPayload.safeParse(req.body);
@@ -43,6 +48,8 @@ export const signup = asyncHandler(async (req: Request, res: Response) => {
       createdAt: true,
     },
   });
+
+  await issueTokenPair(res, user);
 
   return castifyResponse(
     res,
@@ -84,18 +91,7 @@ export const login = asyncHandler(async (req: Request, res: Response) => {
     );
   }
 
-  const token = jwt.sign(
-    { sub: user.id, email: user.email, username: user.username },
-    config.JWT_SECRET,
-    { expiresIn: config.JWT_EXPIRES_IN as unknown as number }
-  );
-
-  res.cookie("access_token", token, {
-    httpOnly: true,
-    secure: config.COOKIE_SECURE,
-    sameSite: "strict",
-    ...(config.COOKIE_DOMAIN ? { domain: config.COOKIE_DOMAIN } : {}),
-  });
+  await issueTokenPair(res, user);
 
   return castifyResponse(
     res,
@@ -103,4 +99,75 @@ export const login = asyncHandler(async (req: Request, res: Response) => {
     STATUS_MSG.LOGIN_SUCCESS,
     STATUS_CODE.OK
   );
+});
+
+export const refresh = asyncHandler(async (req: Request, res: Response) => {
+  const rawToken = (req.cookies as Record<string, string>)["refresh_token"];
+
+  if (!rawToken) {
+    return castifyError(res, STATUS_MSG.UNAUTHORIZED, STATUS_CODE.UNAUTHORIZED);
+  }
+
+  let decoded: RefreshPayload;
+  try {
+    decoded = jwt.verify(rawToken, config.JWT_SECRET) as RefreshPayload;
+  } catch {
+    return castifyError(
+      res,
+      "Invalid or expired refresh token",
+      STATUS_CODE.UNAUTHORIZED
+    );
+  }
+
+  if (decoded.type !== "refresh") {
+    return castifyError(res, "Invalid token type", STATUS_CODE.UNAUTHORIZED);
+  }
+
+  const dbToken = await prisma.refreshToken.findUnique({
+    where: { id: decoded.jti },
+    include: { user: { select: { id: true, email: true, username: true } } },
+  });
+
+  if (
+    !dbToken ||
+    dbToken.revokedAt !== null ||
+    dbToken.expiresAt < new Date()
+  ) {
+    return castifyError(
+      res,
+      "Refresh token is no longer valid",
+      STATUS_CODE.UNAUTHORIZED
+    );
+  }
+
+  await prisma.refreshToken.update({
+    where: { id: dbToken.id },
+    data: { revokedAt: new Date() },
+  });
+
+  await issueTokenPair(res, dbToken.user);
+
+  return castifyResponse(res, null, STATUS_MSG.TOKEN_REFRESHED, STATUS_CODE.OK);
+});
+
+export const logout = asyncHandler(async (req: Request, res: Response) => {
+  const rawToken = (req.cookies as Record<string, string>)["refresh_token"];
+
+  if (rawToken) {
+    try {
+      const decoded = jwt.verify(rawToken, config.JWT_SECRET) as RefreshPayload;
+
+      if (decoded.type === "refresh" && decoded.jti) {
+        await prisma.refreshToken.updateMany({
+          where: { id: decoded.jti, revokedAt: null },
+          data: { revokedAt: new Date() },
+        });
+      }
+    } catch {}
+  }
+
+  res.clearCookie("access_token", COOKIE_BASE);
+  res.clearCookie("refresh_token", COOKIE_BASE);
+
+  return castifyResponse(res, null, STATUS_MSG.LOGOUT_SUCCESS, STATUS_CODE.OK);
 });

@@ -1,6 +1,6 @@
-import { createConfig, baseEnvSchema, kafkaEnvSchema } from "@castify/config";
+import { createConfig, baseEnvSchema, kafkaEnvSchema, z } from "@castify/config";
 import { createLogger } from "@castify/logger";
-import { z } from "zod";
+
 
 const envSchema = baseEnvSchema
   .merge(kafkaEnvSchema)

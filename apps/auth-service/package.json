@@ -6,13 +6,26 @@
   "devDependencies": {
     "@types/bun": "latest"
   },
+  "scripts": {
+    "dev": "bun --watch --inspect=9229 src/index.ts",
+    "start": "bun src/index.ts"
+  },
   "peerDependencies": {
     "typescript": "^5"
   },
   "dependencies": {
-    "@castify/config": "workspace:*",
-    "@castify/logger": "workspace:*",
     "@castify/common": "workspace:*",
-    "@castify/db": "workspace:*"
+    "@castify/config": "workspace:*",
+    "@castify/db": "workspace:*",
+    "@castify/logger": "workspace:*",
+    "@types/bcrypt": "^6.0.0",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/jsonwebtoken": "^9.0.10",
+    "bcryptjs": "^3.0.3",
+    "cors": "^2.8.6",
+    "express": "^5.2.1",
+    "jsonwebtoken": "^9.0.3",
+    "zod": "^3.25.28"
   }
 }

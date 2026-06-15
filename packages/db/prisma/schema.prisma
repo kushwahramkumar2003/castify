@@ -55,6 +55,7 @@ enum NotificationType {
 
 model User {
   id           String    @id @default(uuid()) @db.Uuid
+  fullName     String?   @db.VarChar(100)
   username     String    @unique @db.VarChar(30)
   email        String?   @unique @db.VarChar(255)
   passwordHash String    @db.VarChar(60)          // bcrypt hash (60 chars)

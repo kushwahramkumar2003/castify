@@ -1,8 +1,14 @@
 {
   "name": "@castify/common",
-  "module": "index.ts",
+  "version": "0.1.0",
   "type": "module",
   "private": true,
+  "main": "./src/index.ts",
+  "module": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
   "devDependencies": {
     "@types/bun": "latest"
   },
@@ -11,8 +17,5 @@
   },
   "peerDependencies": {
     "typescript": "^5"
-  },
-  "exports": {
-    ".": "./src/index.ts"
   }
 }

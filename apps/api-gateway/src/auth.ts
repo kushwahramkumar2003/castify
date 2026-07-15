@@ -18,20 +18,49 @@ declare global {
   }
 }
 
+function getTokenFromRequest(req: Request): string | undefined {
+  // 1. Try Authorization header
+  const header = req.headers.authorization;
+  if (header?.startsWith("Bearer ")) {
+    return header.slice(7);
+  }
+
+  // 2. Try cookie (castify_token)
+  const cookieHeader = req.headers.cookie;
+  if (cookieHeader) {
+    const cookies = cookieHeader.split(";").reduce((acc, pair) => {
+      const parts = pair.split("=");
+      const key = parts.shift()?.trim();
+      const value = parts.join("=").trim();
+      if (key) {
+        acc[key] = value;
+      }
+      return acc;
+    }, {} as Record<string, string>);
+
+    if (cookies["castify_token"]) {
+      return cookies["castify_token"];
+    }
+  }
+
+  return undefined;
+}
+
 export function authenticate(
   req: Request,
   res: Response,
   next: NextFunction
 ): void {
-  const header = req.headers.authorization;
-  if (!header?.startsWith("Bearer ")) {
-    res.status(401).json({ error: "Missing or invalid Authorization header" });
+  const token = getTokenFromRequest(req);
+  if (!token) {
+    res.status(401).json({ error: "Missing or invalid Authorization header or castify_token cookie" });
     return;
   }
 
-  const token = header.slice(7);
   try {
-    const decoded = jwt.verify(token, config.JWT_SECRET) as JwtPayload;
+    const decoded = jwt.verify(token, config.JWT_SECRET, {
+      algorithms: ["HS256"],
+    }) as JwtPayload;
     req.user = decoded;
     next();
   } catch (err: unknown) {
@@ -50,15 +79,16 @@ export function optionalAuth(
   _res: Response,
   next: NextFunction
 ): void {
-  const header = req.headers.authorization;
-  if (!header?.startsWith("Bearer ")) {
+  const token = getTokenFromRequest(req);
+  if (!token) {
     next();
     return;
   }
 
-  const token = header.slice(7);
   try {
-    req.user = jwt.verify(token, config.JWT_SECRET) as JwtPayload;
+    req.user = jwt.verify(token, config.JWT_SECRET, {
+      algorithms: ["HS256"],
+    }) as JwtPayload;
   } catch {}
   next();
 }

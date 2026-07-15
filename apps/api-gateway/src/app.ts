@@ -10,12 +10,14 @@ export function createApp(): Application {
   const app = express();
 
   const origins = config.CORS_ORIGINS.split(",").map((o) => o.trim());
-  app.use(cors({
-    origin: origins,
-    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
-    credentials: true,
-  }));
+  app.use(
+    cors({
+      origin: origins,
+      methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+      allowedHeaders: ["Content-Type", "Authorization"],
+      credentials: true,
+    })
+  );
 
   app.use(express.json({ limit: "1mb" }));
   app.use(express.urlencoded({ extended: true, limit: "1mb" }));
@@ -28,7 +30,7 @@ export function createApp(): Application {
       const ms = Date.now() - start;
       logger.info(
         { method: req.method, path: req.path, status: res.statusCode, ms },
-        "←",
+        "←"
       );
     });
     next();
@@ -40,10 +42,17 @@ export function createApp(): Application {
     res.status(404).json({ error: "Not found" });
   });
 
-  app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-    logger.error({ err }, "Unhandled error");
-    res.status(500).json({ error: "Internal server error" });
-  });
+  app.use(
+    (
+      err: Error,
+      _req: express.Request,
+      res: express.Response,
+      _next: express.NextFunction
+    ) => {
+      logger.error({ err }, "Unhandled error");
+      res.status(500).json({ error: "Internal server error" });
+    }
+  );
 
   return app;
 }

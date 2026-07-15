@@ -11,8 +11,10 @@ const env = z.object({
 
   JWT_SECRET: z
     .string()
-    .min(16)
-    .default("castify-dev-secret-do-not-use-in-production"),
+    .min(32, "JWT_SECRET must be at least 32 characters"),
+  INTERNAL_SECRET: z
+    .string()
+    .min(32, "INTERNAL_SECRET must be at least 32 characters"),
   JWT_ACCESS_TOKEN_EXPIRES_IN: z.string().default("15m"),
   JWT_REFRESH_TOKEN_EXPIRES_IN: z.string().default("7d"),
 

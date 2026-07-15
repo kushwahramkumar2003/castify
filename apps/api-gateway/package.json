@@ -13,6 +13,8 @@
     "@castify/kafka": "workspace:*",
     "@castify/logger": "workspace:*",
     "@castify/types": "workspace:*",
+    "@types/cors": "^2.8.19",
+    "cors": "^2.8.6",
     "express": "^4.21.2",
     "http-proxy-middleware": "^3.0.3",
     "jsonwebtoken": "^9.0.2",

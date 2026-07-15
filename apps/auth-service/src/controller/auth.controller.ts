@@ -10,13 +10,8 @@ import type { Request, Response } from "express";
 import { loginPayload, signupPayload } from "../schema/auth.schema";
 import { prisma } from "@castify/db";
 import bcrypt from "bcryptjs";
-import jwt from "jsonwebtoken";
-import { config } from "../config";
-import {
-  type RefreshPayload,
-  COOKIE_BASE,
-  issueTokenPair,
-} from "../utils/auth.utils";
+import { signToken, setAuthCookie } from "../utils/auth.utils";
+import { omit } from "zod/v4-mini";
 
 export const signup = asyncHandler(async (req: Request, res: Response) => {
   const parsed = signupPayload.safeParse(req.body);
@@ -49,11 +44,12 @@ export const signup = asyncHandler(async (req: Request, res: Response) => {
     },
   });
 
-  await issueTokenPair(res, user);
+  const token = signToken({ sub: user.id, username: user.username });
+  setAuthCookie(res, token);
 
   return castifyResponse(
     res,
-    user,
+    { user },
     STATUS_MSG.SIGNUP_SUCCESS,
     STATUS_CODE.CREATED
   );
@@ -73,7 +69,6 @@ export const login = asyncHandler(async (req: Request, res: Response) => {
   const user = await prisma.user.findUnique({
     where: { email: parsed.data.email },
   });
-
   if (!user) {
     return castifyError(
       res,
@@ -91,83 +86,20 @@ export const login = asyncHandler(async (req: Request, res: Response) => {
     );
   }
 
-  await issueTokenPair(res, user);
-
+  const token = signToken({ sub: user.id, username: user.username });
+  setAuthCookie(res, token);
   return castifyResponse(
     res,
-    { id: user.id, username: user.username, email: user.email },
+    {
+      fullName: user.fullName,
+      avatarUrl: user.avatarUrl,
+      username: user.username,
+      bio: user.bio,
+      displayName: user.displayName,
+      email: user.email,
+      id: user.id,
+    },
     STATUS_MSG.LOGIN_SUCCESS,
     STATUS_CODE.OK
   );
-});
-
-export const refresh = asyncHandler(async (req: Request, res: Response) => {
-  const rawToken = (req.cookies as Record<string, string>)["refresh_token"];
-
-  if (!rawToken) {
-    return castifyError(res, STATUS_MSG.UNAUTHORIZED, STATUS_CODE.UNAUTHORIZED);
-  }
-
-  let decoded: RefreshPayload;
-  try {
-    decoded = jwt.verify(rawToken, config.JWT_SECRET) as RefreshPayload;
-  } catch {
-    return castifyError(
-      res,
-      "Invalid or expired refresh token",
-      STATUS_CODE.UNAUTHORIZED
-    );
-  }
-
-  if (decoded.type !== "refresh") {
-    return castifyError(res, "Invalid token type", STATUS_CODE.UNAUTHORIZED);
-  }
-
-  const dbToken = await prisma.refreshToken.findUnique({
-    where: { id: decoded.jti },
-    include: { user: { select: { id: true, email: true, username: true } } },
-  });
-
-  if (
-    !dbToken ||
-    dbToken.revokedAt !== null ||
-    dbToken.expiresAt < new Date()
-  ) {
-    return castifyError(
-      res,
-      "Refresh token is no longer valid",
-      STATUS_CODE.UNAUTHORIZED
-    );
-  }
-
-  await prisma.refreshToken.update({
-    where: { id: dbToken.id },
-    data: { revokedAt: new Date() },
-  });
-
-  await issueTokenPair(res, dbToken.user);
-
-  return castifyResponse(res, null, STATUS_MSG.TOKEN_REFRESHED, STATUS_CODE.OK);
-});
-
-export const logout = asyncHandler(async (req: Request, res: Response) => {
-  const rawToken = (req.cookies as Record<string, string>)["refresh_token"];
-
-  if (rawToken) {
-    try {
-      const decoded = jwt.verify(rawToken, config.JWT_SECRET) as RefreshPayload;
-
-      if (decoded.type === "refresh" && decoded.jti) {
-        await prisma.refreshToken.updateMany({
-          where: { id: decoded.jti, revokedAt: null },
-          data: { revokedAt: new Date() },
-        });
-      }
-    } catch {}
-  }
-
-  res.clearCookie("access_token", COOKIE_BASE);
-  res.clearCookie("refresh_token", COOKIE_BASE);
-
-  return castifyResponse(res, null, STATUS_MSG.LOGOUT_SUCCESS, STATUS_CODE.OK);
 });

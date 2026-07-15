@@ -1,75 +1,49 @@
-import jwt from "jsonwebtoken";
-import { randomUUID } from "crypto";
+import jwt, { type SignOptions } from "jsonwebtoken";
 import type { Response } from "express";
-import { prisma } from "@castify/db";
 import { config } from "../config";
 
-export interface AccessPayload {
+export interface TokenPayload {
   sub: string;
-  email: string;
   username: string;
 }
 
-export interface RefreshPayload extends AccessPayload {
-  type: "refresh";
-  jti: string;
-}
-
-export const COOKIE_BASE = {
-  httpOnly: true,
-  sameSite: "strict" as const,
-  secure: config.COOKIE_SECURE,
-  ...(config.COOKIE_DOMAIN ? { domain: config.COOKIE_DOMAIN } : {}),
-};
-
-export function signAccessToken(payload: AccessPayload): string {
-  return jwt.sign(payload, config.JWT_SECRET, {
-    expiresIn: config.JWT_EXPIRES_IN as unknown as number,
-  });
-}
-
-export function signRefreshToken(payload: RefreshPayload): string {
-  return jwt.sign(payload, config.JWT_SECRET, {
-    expiresIn: config.REFRESH_TOKEN_EXPIRES_IN as unknown as number,
-  });
-}
-
-/**
- * Signs an access + refresh token pair, persists the refresh token in the DB,
- * and sets both as httpOnly cookies on the response.
- *
- * @param res  - Express response (cookies are attached here)
- * @param user - Minimal user shape needed for the JWT payload
- */
-export async function issueTokenPair(
-  res: Response,
-  user: { id: string; email: string | null; username: string }
-): Promise<{ accessToken: string; refreshToken: string }> {
-  const jti = randomUUID();
-  const expiresAt = new Date(Date.now() + config.REFRESH_COOKIE_MAX_AGE_MS);
-
-  const base: AccessPayload = {
-    sub: user.id,
-    email: user.email ?? "",
-    username: user.username,
+export function signToken(payload: TokenPayload): string {
+  const options: SignOptions = {
+    expiresIn: config.JWT_EXPIRES_IN as SignOptions["expiresIn"],
+    algorithm: "HS256",
   };
 
-  const accessToken = signAccessToken(base);
-  const refreshToken = signRefreshToken({ ...base, type: "refresh", jti });
+  return jwt.sign(payload, config.JWT_SECRET, options);
+}
 
-  await prisma.refreshToken.create({
-    data: { id: jti, userId: user.id, token: refreshToken, expiresAt },
+export function setAuthCookie(res: Response, token: string): void {
+  res.cookie("castify_token", token, {
+    httpOnly: true,
+    secure: config.COOKIE_SECURE,
+    sameSite: "lax",
+    path: "/",
+    domain: config.COOKIE_DOMAIN,
+    maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
   });
+}
 
-  res.cookie("access_token", accessToken, {
-    ...COOKIE_BASE,
-    maxAge: config.COOKIE_MAX_AGE_MS,
+export function clearAuthCookie(res: Response): void {
+  res.clearCookie("castify_token", {
+    httpOnly: true,
+    secure: config.COOKIE_SECURE,
+    sameSite: "lax",
+    path: "/",
+    domain: config.COOKIE_DOMAIN,
   });
+}
 
-  res.cookie("refresh_token", refreshToken, {
-    ...COOKIE_BASE,
-    maxAge: config.REFRESH_COOKIE_MAX_AGE_MS,
-  });
-
-  return { accessToken, refreshToken };
+/** Verify and decode a token. Returns null if invalid or expired. */
+export function verifyToken(token: string): TokenPayload | null {
+  try {
+    return jwt.verify(token, config.JWT_SECRET, {
+      algorithms: ["HS256"],
+    }) as TokenPayload;
+  } catch {
+    return null;
+  }
 }

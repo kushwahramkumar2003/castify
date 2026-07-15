@@ -4,7 +4,7 @@
 // Single source of truth for all PostgreSQL entities across every service.
 //
 // Services consuming this schema:
-//   auth-service           — User, StreamKey, RefreshToken
+//   auth-service           — User, StreamKey
 //   metadata-service       — Stream, Category
 //   notification-service   — Notification, NotificationPreference, Subscription
 //   moderation-service     — ChannelBan, BannedWord, ChatTimeout
@@ -68,7 +68,6 @@ model User {
   // Relations
   streamKeys              StreamKey[]
   streams                 Stream[]
-  refreshTokens           RefreshToken[]
   notifications           Notification[]
   notificationPreferences NotificationPreference?
   subscriptions           Subscription[]           @relation("Subscriber")
@@ -87,34 +86,20 @@ model User {
 }
 
 model StreamKey {
-  id        String   @id @default(uuid()) @db.Uuid
-  key       String   @db.VarChar(64) @unique   // random hex string (nginx stream key)
-  
-  userId    String   @db.Uuid
-  streamId  String   @db.VarChar(50)        // e.g. "stream-0001-0000-0000-000000000001"
-  createdAt DateTime @default(now())
+  id        String    @id @default(uuid()) @db.Uuid
+  key       String    @db.VarChar(64) @unique // random hex string (nginx stream key)
+  userId    String    @db.Uuid
+  streamId  String    @db.VarChar(50) // e.g. "stream-0001-0000-0000-000000000001"
+  label     String?   @db.VarChar(50) // user-friendly name, e.g. "Desktop OBS", "Laptop"
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+  @@index([userId, revokedAt])
   @@index([streamId])
   @@map("stream_keys")
-}
-
-model RefreshToken {
-  id        String   @id @default(uuid()) @db.Uuid
-  userId    String   @db.Uuid
-  token     String   @unique @db.VarChar(500)  // JWT refresh token
-  expiresAt DateTime
-  revokedAt DateTime?
-  createdAt DateTime @default(now())
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId])
-  @@index([token])
-  @@index([expiresAt])
-  @@map("refresh_tokens")
 }
 
 model Category {
@@ -139,9 +124,16 @@ model Stream {
   isLive        Boolean  @default(false)
   startedAt     DateTime?
   endedAt       DateTime?
+  lastActivityAt DateTime @default(now()) // updated on publish/offline; auto-end after 2h idle
   durationSecs  Int?                           // computed when stream ends
   peakViewers   Int?                           // computed from analytics
   totalViews    Int?                           // computed from analytics
+  
+  // Custom configuration options
+  qualities     String[] @db.VarChar(10)       // e.g. ["1080p", "720p", "480p"]
+  isPrivate     Boolean  @default(false)
+  scheduledAt   DateTime?
+
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
@@ -157,6 +149,7 @@ model Stream {
   @@index([categoryId])
   @@index([isLive])
   @@index([startedAt])
+  @@index([lastActivityAt])
   @@map("streams")
 }
 model Vod {

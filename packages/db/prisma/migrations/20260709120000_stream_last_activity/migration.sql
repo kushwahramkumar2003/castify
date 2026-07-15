@@ -1,0 +1,5 @@
+-- AlterTable
+ALTER TABLE "streams" ADD COLUMN "lastActivityAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP;
+
+-- CreateIndex
+CREATE INDEX "streams_lastActivityAt_idx" ON "streams"("lastActivityAt");

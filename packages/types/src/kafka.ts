@@ -32,6 +32,12 @@ export interface VideoSegmentReadyEvent {
   isFinal: boolean;           // true on the last segment when stream ends
   isMaster: boolean;          // true for the master.m3u8 "first segment" event
   masterPlaylist?: string;    // raw master playlist content (only on startup)
+  /**
+   * True on the first media segment after an OBS reconnect (same stream key,
+   * new FFmpeg session). Packager inserts #EXT-X-DISCONTINUITY so players can
+   * stitch multi-clip sessions correctly.
+   */
+  discontinuity?: boolean;
 }
 
 export interface StreamKeyValidation {

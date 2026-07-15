@@ -36,3 +36,9 @@ yarn-error.log*
 # Misc
 .DS_Store
 *.pem
+
+# Local Dev & Agent Files
+.agents/
+skills-lock.json
+castify_session_context.md
+apps/web/screenshots/

@@ -266,6 +266,7 @@ services:
         mc mb --ignore-existing local/hls-segments &&
         mc mb --ignore-existing local/vod-archive &&
         mc anonymous set download local/hls-segments &&
+        mc anonymous set download local/vod-archive &&
         printf '%s' '{
           \"CORSRules\": [{
             \"AllowedOrigins\": [\"*\"],
@@ -275,6 +276,7 @@ services:
           }]
         }' > /tmp/cors.json &&
         mc cors set local/hls-segments /tmp/cors.json 2>/dev/null || true &&
+        mc cors set local/vod-archive /tmp/cors.json 2>/dev/null || true &&
         echo 'MinIO buckets ready' &&
         exit 0
       "

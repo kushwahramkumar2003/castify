@@ -15,6 +15,7 @@ export async function processSegment(event: {
   segmentKey: string;
   isMaster: boolean;
   masterPlaylist?: string;
+  discontinuity?: boolean;
 }): Promise<void> {
   try {
     if (event.isMaster && event.masterPlaylist) {
@@ -27,15 +28,23 @@ export async function processSegment(event: {
     }
     await uploadSegment(event.localSegmentPath, event.segmentKey);
     const playlistKey = `live/${event.streamKey}/${event.quality}/index.m3u8`;
-    await uploadPlaylistFromDisk(event.localPlaylistPath, playlistKey);
+    // Merge with any prior playlist so OBS stop/start keeps multi-clip history.
+    // discontinuity=true on first segment after OBS reconnect inserts
+    // #EXT-X-DISCONTINUITY so players can stitch clips with reset timestamps.
+    await uploadPlaylistFromDisk(event.localPlaylistPath, playlistKey, {
+      merge: true,
+      finalize: false,
+      discontinuity: event.discontinuity === true,
+    });
 
-    logger.debug(
+    logger.info(
       {
         streamKey: `${event.streamKey.slice(0, 8)}…`,
         quality: event.quality,
         index: event.segmentIndex,
+        discontinuity: Boolean(event.discontinuity),
       },
-      "Segment + playlist uploaded"
+      "Segment + merged playlist uploaded"
     );
   } catch (err) {
     logger.error(

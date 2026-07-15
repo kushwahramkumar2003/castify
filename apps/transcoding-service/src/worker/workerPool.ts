@@ -54,10 +54,28 @@ export class WorkerPool {
   async addStream(event: StreamStartedEvent): Promise<void> {
     const { streamKey, streamId } = event;
 
-    // Idempotency guard: ignore duplicates (Kafka at-least-once delivery)
-    if (this.workers.has(streamKey)) {
-      logger.warn({ streamKey: `${streamKey.slice(0, 8)}…` }, "WorkerPool: duplicate stream.started — ignoring");
-      return;
+    // Idempotency / reconnect handling
+    const existing = this.workers.get(streamKey);
+    if (existing) {
+      // Active encode — ignore Kafka redelivery
+      if (existing.state === "TRANSCODING" || existing.state === "STARTING") {
+        logger.warn(
+          { streamKey: `${streamKey.slice(0, 8)}…`, state: existing.state },
+          "WorkerPool: duplicate stream.started — ignoring"
+        );
+        return;
+      }
+      // Stale worker after OBS stop (DONE/ERROR/STOPPING) — replace so reconnect works
+      logger.info(
+        { streamKey: `${streamKey.slice(0, 8)}…`, state: existing.state },
+        "WorkerPool: replacing stopped worker for OBS reconnect"
+      );
+      try {
+        await existing.stop();
+      } catch {
+        // ignore
+      }
+      this.workers.delete(streamKey);
     }
 
     if (this.isFull) {

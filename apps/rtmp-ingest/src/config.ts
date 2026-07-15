@@ -9,6 +9,9 @@ const envSchema = baseEnvSchema
     KAFKA_CLIENT_ID: z.string().default("rtmp-ingest"),
 
     AUTH_SERVICE_URL: z.string().url().default("http://localhost:3000"),
+    INTERNAL_SECRET: z
+      .string()
+      .min(32, "INTERNAL_SECRET must be at least 32 characters"),
 
     KAFKA_TOPIC_STREAM_STARTED: z.string().default("stream.started"),
     KAFKA_TOPIC_STREAM_ENDED: z.string().default("stream.ended"),

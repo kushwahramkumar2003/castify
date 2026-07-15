@@ -1,13 +1,15 @@
 import { Client } from "minio";
-import { createReadStream } from "node:fs";
-import { readFile } from "node:fs/promises";
 import { config } from "../config.ts";
 import { logger } from "../logger.ts";
 
+// MinIO access for HLS continuity across OBS reconnects (same stream key).
+// Segments live at: live/<streamKey>/<quality>/segXXXXX.ts
+// Playlists live at: live/<streamKey>/<quality>/index.m3u8
+
 const minioClient = new Client({
-  endPoint:  config.MINIO_ENDPOINT,
-  port:      config.MINIO_PORT,
-  useSSL:    config.MINIO_USE_SSL,
+  endPoint: config.MINIO_ENDPOINT,
+  port: config.MINIO_PORT,
+  useSSL: config.MINIO_USE_SSL,
   accessKey: config.MINIO_ACCESS_KEY,
   secretKey: config.MINIO_SECRET_KEY,
 });
@@ -20,62 +22,84 @@ export async function ensureBucket(bucket: string = config.MINIO_BUCKET): Promis
   }
 }
 
-export async function uploadSegment(
-  localPath: string,
-  objectKey: string,
+/**
+ * Scan existing segment objects for a quality ladder and return the next
+ * FFmpeg start number so reconnects do not overwrite prior clips.
+ *
+ * Object names: live/<streamKey>/<quality>/seg00042.ts → index 42
+ */
+export async function getNextSegmentStartNumber(
+  streamKey: string,
+  quality: string,
   bucket: string = config.MINIO_BUCKET
-): Promise<void> {
-  const stream = createReadStream(localPath);
-  await minioClient.putObject(bucket, objectKey, stream);
-  logger.debug({ objectKey }, "Segment uploaded to MinIO");
+): Promise<number> {
+  const prefix = `live/${streamKey}/${quality}/`;
+  let maxIndex = -1;
+
+  try {
+    const stream = minioClient.listObjectsV2(bucket, prefix, true);
+    for await (const obj of stream) {
+      if (!obj.name) continue;
+      const base = obj.name.split("/").pop() ?? "";
+      const m = base.match(/^seg(\d+)\.ts$/i);
+      if (!m) continue;
+      const n = parseInt(m[1]!, 10);
+      if (Number.isFinite(n) && n > maxIndex) maxIndex = n;
+    }
+  } catch (err) {
+    logger.warn(
+      { err, streamKey: `${streamKey.slice(0, 8)}…`, quality },
+      "Could not list existing segments — starting from 0"
+    );
+    return 0;
+  }
+
+  const next = maxIndex + 1;
+  if (next > 0) {
+    logger.info(
+      { streamKey: `${streamKey.slice(0, 8)}…`, quality, nextStart: next },
+      "Resuming HLS segment numbering after prior session"
+    );
+  }
+  return next;
 }
 
-// =============================================================================
-// uploadText — write a playlist file (master.m3u8 / index.m3u8) to MinIO
-// =============================================================================
-// Called when:
-//   a) Stream starts → upload master.m3u8
-//   b) A new segment is ready → upload the updated quality-level index.m3u8
-//   c) Stream ends → upload final playlists with #EXT-X-ENDLIST
-// =============================================================================
-export async function uploadText(
-  content: string,
-  objectKey: string,
+/**
+ * Download an existing quality playlist so FFmpeg can append_list onto it.
+ * Strips EXT-X-ENDLIST so a reconnect can continue the same media playlist.
+ */
+export async function downloadPlaylistForAppend(
+  streamKey: string,
+  quality: string,
   bucket: string = config.MINIO_BUCKET
-): Promise<void> {
-  const buf = Buffer.from(content, "utf-8");
-  await minioClient.putObject(bucket, objectKey, buf, buf.length, {
-    "Content-Type": "application/vnd.apple.mpegurl",
-    "Cache-Control": "no-cache, no-store, must-revalidate",
-  });
-  logger.debug({ objectKey }, "Playlist uploaded to MinIO");
-}
-
-// =============================================================================
-// uploadPlaylistFromDisk — read a local .m3u8 and upload it verbatim
-// =============================================================================
-// FFmpeg writes and manages the quality-level index.m3u8 files.  After each
-// segment write, the watcher reads the updated playlist from disk and uploads
-// it to MinIO so viewers always have the latest segment list.
-// =============================================================================
-export async function uploadPlaylistFromDisk(
-  localPath: string,
-  objectKey: string,
-  bucket: string = config.MINIO_BUCKET
-): Promise<void> {
-  const content = await readFile(localPath, "utf-8");
-  await uploadText(content, objectKey, bucket);
-}
-
-// =============================================================================
-// getPublicUrl — construct the MinIO/CDN URL for a given object
-// =============================================================================
-export function getPublicUrl(objectKey: string): string {
-  const scheme = config.MINIO_USE_SSL ? "https" : "http";
-  const port   = config.MINIO_PORT !== 80 && config.MINIO_PORT !== 443
-    ? `:${config.MINIO_PORT}`
-    : "";
-  return `${scheme}://${config.MINIO_ENDPOINT}${port}/${config.MINIO_BUCKET}/${objectKey}`;
+): Promise<string | null> {
+  const objectKey = `live/${streamKey}/${quality}/index.m3u8`;
+  try {
+    const stream = await minioClient.getObject(bucket, objectKey);
+    const chunks: Buffer[] = [];
+    for await (const chunk of stream) {
+      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    }
+    let content = Buffer.concat(chunks).toString("utf-8");
+    // Remove end marker so the session can continue after OBS reconnect
+    content = content
+      .split(/\r?\n/)
+      .filter((line) => line.trim() !== "#EXT-X-ENDLIST")
+      .join("\n");
+    if (!content.endsWith("\n")) content += "\n";
+    return content;
+  } catch (err: unknown) {
+    const code =
+      err && typeof err === "object" && "code" in err
+        ? String((err as { code: string }).code)
+        : "";
+    if (code === "NoSuchKey" || code === "NotFound") return null;
+    logger.warn(
+      { err, objectKey },
+      "Failed to download existing playlist for append"
+    );
+    return null;
+  }
 }
 
 export { minioClient };

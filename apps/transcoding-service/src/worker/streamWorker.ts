@@ -1,4 +1,5 @@
-import { mkdir, rm } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import { join, basename } from "node:path";
 import type { StreamStartedEvent, TranscodingState, QualityLabel } from "@castify/types";
 import { config } from "../config.ts";
@@ -7,6 +8,10 @@ import { FfmpegProcess } from "../ffmpeg/process.ts";
 import { SegmentWatcher } from "../watcher/segmentWatcher.ts";
 import { resolveProfiles, buildMasterPlaylist } from "../profiles.ts";
 import { publishSegmentReady } from "../kafka/producer.ts";
+import {
+  getNextSegmentStartNumber,
+  downloadPlaylistForAppend,
+} from "../storage/minio.ts";
 
 // =============================================================================
 // StreamWorker — manages the full lifecycle of ONE stream's transcoding job
@@ -26,7 +31,7 @@ import { publishSegmentReady } from "../kafka/producer.ts";
 // WorkerPool calls worker.stop() when stream.ended arrives.
 //
 // TEMP DIRECTORY LAYOUT (cleaned up on DONE):
-//   /tmp/castify-transcoding/<instanceId>/<streamKey>/
+//   /tmp/castify-transcoding/<instanceId>/<streamKey>/<workerId>/
 //     720p/  index.m3u8  seg00001.ts  seg00002.ts ...
 //     480p/  ...
 //     360p/  ...
@@ -41,15 +46,24 @@ export class StreamWorker {
   private segmentWatcher: SegmentWatcher | null = null;
   private heartbeat: ReturnType<typeof setInterval> | null = null;
   private tempDir: string;
+  private readonly workerId = randomUUID();
   private segmentsUploaded = 0;
+  /** Qualities still waiting for a reconnect discontinuity marker on first seg */
+  private pendingDiscontinuity = new Set<string>();
   private readonly profiles = resolveProfiles(config.FFMPEG_QUALITIES);
 
   constructor(private readonly event: StreamStartedEvent) {
     this.qualities = this.profiles.map((p) => p.label);
-    // Temp dir: /private/tmp/castify-transcoding/<instanceId>/<streamKey>
-    // The instance ID is only used as a namespace on the same host — the
-    // actual path is published in Kafka events so hls-packager can find it.
-    this.tempDir = join(config.TEMP_DIR, config.INSTANCE_ID, event.streamKey);
+    // A reconnect starts a new worker for the same stream key. Give every
+    // worker its own directory so delayed cleanup from the prior connection
+    // cannot delete files that the new FFmpeg process is actively producing.
+    // The actual path is carried in Kafka events for hls-packager to read.
+    this.tempDir = join(
+      config.TEMP_DIR,
+      config.INSTANCE_ID,
+      event.streamKey,
+      this.workerId
+    );
   }
 
   // ---------------------------------------------------------------------------
@@ -69,6 +83,47 @@ export class StreamWorker {
       await Promise.all(
         this.profiles.map((p) => mkdir(join(this.tempDir, p.label), { recursive: true }))
       );
+
+      // 1b. HLS continuity — if this stream key already has segments in MinIO
+      //     (OBS stop → offline → OBS start again), continue numbering and seed
+      //     local playlists so FFmpeg can append instead of wiping prior clips.
+      const startNumbers: Record<string, number> = {};
+      let appendExisting = false;
+
+      await Promise.all(
+        this.profiles.map(async (p) => {
+          const next = await getNextSegmentStartNumber(streamKey, p.label);
+          startNumbers[p.label] = next;
+          if (next > 0) {
+            appendExisting = true;
+            const existing = await downloadPlaylistForAppend(streamKey, p.label);
+            if (existing) {
+              await writeFile(join(this.tempDir, p.label, "index.m3u8"), existing, "utf-8");
+              logger.info(
+                {
+                  streamKey: `${streamKey.slice(0, 8)}…`,
+                  quality: p.label,
+                  startNumber: next,
+                },
+                "Seeded local playlist for OBS reconnect append"
+              );
+            }
+          }
+        })
+      );
+
+      if (appendExisting) {
+        // First media segment per quality after OBS reconnect needs discontinuity
+        for (const p of this.profiles) {
+          if ((startNumbers[p.label] ?? 0) > 0) {
+            this.pendingDiscontinuity.add(p.label);
+          }
+        }
+        logger.info(
+          { streamKey: `${streamKey.slice(0, 8)}…`, startNumbers },
+          "Continuing multi-clip session (OBS reconnect)"
+        );
+      }
 
       // 2. Publish a "master" segment ready event so hls-packager knows
       //    to upload the master playlist and start watching
@@ -103,6 +158,8 @@ export class StreamWorker {
         rtmpUrl,
         tempDir: this.tempDir,
         profiles: this.profiles,
+        startNumbers,
+        appendExisting,
       };
 
       this.ffmpegProcess = new FfmpegProcess(ffmpegOpts, streamKey);
@@ -129,6 +186,9 @@ export class StreamWorker {
           this.segmentsUploaded++;
 
           const segmentKey = `live/${streamKey}/${quality}/${basename(localSegmentPath)}`;
+          // Only the first segment of a reconnect session (per quality) needs discontinuity
+          const discontinuity = this.pendingDiscontinuity.has(quality);
+          if (discontinuity) this.pendingDiscontinuity.delete(quality);
 
           // Publish video.segment.ready Kafka event — hls-packager will upload
           void publishSegmentReady({
@@ -144,6 +204,7 @@ export class StreamWorker {
             timestamp: new Date().toISOString(),
             isFinal: false,
             isMaster: false,
+            discontinuity,
           });
         }
       );

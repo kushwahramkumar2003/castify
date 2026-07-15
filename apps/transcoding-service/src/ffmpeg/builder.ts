@@ -34,6 +34,17 @@ export interface FfmpegCommandArgs {
   rtmpUrl: string;      // rtmp://localhost:1935/live/<stream-key>
   tempDir: string;      // /private/tmp/castify-transcoding/<instanceId>/<streamKey>
   profiles: QualityProfile[];
+  /**
+   * Per-quality first segment index (default 0).
+   * On OBS reconnect this continues from max(existing MinIO segs)+1 so prior
+   * clips are not overwritten.
+   */
+  startNumbers?: Record<string, number>;
+  /**
+   * When true, FFmpeg uses append_list so new segs are added to an existing
+   * local index.m3u8 (seeded from MinIO on reconnect).
+   */
+  appendExisting?: boolean;
 }
 
 /**
@@ -48,7 +59,7 @@ export function getFfmpegPath(): string {
  * Returns { args: string[], cmdString: string } for logging and spawning.
  */
 export function buildFfmpegArgs(opts: FfmpegCommandArgs): { args: string[]; cmdString: string } {
-  const { rtmpUrl, tempDir, profiles } = opts;
+  const { rtmpUrl, tempDir, profiles, startNumbers = {}, appendExisting = false } = opts;
   const n = profiles.length;
 
   // ── Filter complex ─────────────────────────────────────────────────────────
@@ -99,6 +110,18 @@ export function buildFfmpegArgs(opts: FfmpegCommandArgs): { args: string[]; cmdS
     const p      = profiles[i]!;
     const outDir = join(tempDir, p.label);
     const gopSize = p.frameRate * 2; // 2-second GOP matches HLS segment duration
+    const startNumber = startNumbers[p.label] ?? 0;
+
+    // HLS flags:
+    //   independent_segments — each .ts decodes standalone (ABR)
+    //   temp_file            — atomic rename so chokidar never sees partial segs
+    //   omit_endlist         — OBS disconnect must NOT finalize the playlist;
+    //                          session stays open so reconnect can append
+    //   append_list          — on reconnect, extend the seeded index.m3u8
+    // NOTE: do NOT use delete_segments — packager/MinIO own retention
+    const hlsFlags = appendExisting
+      ? "independent_segments+temp_file+omit_endlist+append_list"
+      : "independent_segments+temp_file+omit_endlist";
 
     args.push(
       // Video stream mapping — the scaled, labelled output from filter_complex
@@ -112,29 +135,27 @@ export function buildFfmpegArgs(opts: FfmpegCommandArgs): { args: string[]; cmdS
       "-maxrate",      `${p.maxVideoBitrateKbps}k`,
       "-bufsize",      `${p.bufSizeKbps}k`,
       "-preset",       config.FFMPEG_PRESET,
-      "-profile:v",   "main",        // H.264 Main Profile — broad device compatibility
-      "-level:v",     "4.0",         // Level 4.0 supports up to 1080p 30fps
-      "-sc_threshold", "0",           // disable scene-cut detection for stable GOP
+      "-profile:v",   "main",
+      "-level:v",     "4.0",
+      "-sc_threshold", "0",
       "-g",            String(gopSize),
       "-keyint_min",   String(p.frameRate),
       "-r",            String(p.frameRate),
-      "-pix_fmt",      "yuv420p",    // required for Main Profile broad compatibility
+      "-pix_fmt",      "yuv420p",
 
       // ── Audio codec ───────────────────────────────────────────────────────
       "-c:a",          "aac",
       "-b:a",          `${p.audioBitrateKbps}k`,
-      "-ac",           "2",           // stereo
+      "-ac",           "2",
       "-ar",           "44100",
 
       // ── HLS muxer ─────────────────────────────────────────────────────────
       "-f",            "hls",
       "-hls_time",     String(config.HLS_SEGMENT_SECONDS),
-      "-hls_list_size","0",           // keep ALL segments in playlist (needed for VOD)
+      "-hls_list_size","0",           // keep ALL segments (full session / multi-clip)
       "-hls_segment_type", "mpegts",
-      // independent_segments: each .ts can be decoded standalone (required for ABR)
-      // temp_file: FFmpeg writes <seg>.ts.tmp → renames → chokidar sees only complete files
-      // NOTE: do NOT use delete_segments — we manage cleanup ourselves after MinIO upload
-      "-hls_flags",    "independent_segments+temp_file",
+      "-start_number", String(startNumber),
+      "-hls_flags",    hlsFlags,
       "-hls_segment_filename", join(outDir, "seg%05d.ts"),
 
       // Output file for this quality's playlist

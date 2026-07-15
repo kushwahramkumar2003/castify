@@ -162,7 +162,8 @@ export class FfmpegProcess {
       this.events.once("end", cleanup);
       this.events.once("ffmpeg-error", cleanup);
 
-      // SIGINT lets FFmpeg finalize the last HLS segment and write EXT-X-ENDLIST
+      // SIGINT finalizes the last open segment. With omit_endlist in hls_flags,
+      // FFmpeg will NOT write EXT-X-ENDLIST so OBS can reconnect and append.
       this.proc.kill("SIGINT");
 
       const forceKill = setTimeout(() => {

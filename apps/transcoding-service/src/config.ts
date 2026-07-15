@@ -72,6 +72,19 @@ const env = z.object({
   // FFmpeg writes to "/private/tmp/..." (the real path), the add events are
   // silently dropped and segmentsUploaded stays at 0 forever.
   TEMP_DIR: z.string().default(join(tmpdir(), "castify-transcoding")),
+
+  // ── MinIO (HLS continuity across OBS reconnects) ───────────────────────────
+  // Used to discover the next segment number and seed playlists so a stop/start
+  // from OBS appends to the same live/<streamKey>/… object tree instead of
+  // overwriting seg00000.ts / index.m3u8.
+  MINIO_ENDPOINT: z.string().default("localhost"),
+  MINIO_PORT: z.coerce.number().default(9100),
+  MINIO_USE_SSL: z
+    .preprocess((v) => v === "true" || v === "1", z.boolean())
+    .default(false),
+  MINIO_ACCESS_KEY: z.string().default("castify"),
+  MINIO_SECRET_KEY: z.string().default("castify123"),
+  MINIO_BUCKET: z.string().default("hls-segments"),
 });
 
 const parsed = env.safeParse(process.env);

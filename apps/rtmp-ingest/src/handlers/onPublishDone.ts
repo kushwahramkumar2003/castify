@@ -1,6 +1,6 @@
 import type { Request, Response } from "express";
 import type { RtmpCallbackBody } from "@castify/types";
-import { logger } from "../config.ts";
+import { logger, config } from "../config.ts";
 import { authService } from "../services/authService.ts";
 import { kafkaService } from "../services/kafkaService.ts";
 import { activeStreams } from "./onPublish.ts";
@@ -35,6 +35,18 @@ export async function onPublishDoneHandler(req: Request, res: Response) {
   activeStreams.delete(streamKey);
   authService.evictStreamKey(streamKey);
 
+  // Mark offline only — session stays open so OBS can reconnect with the same key
+  try {
+    const offlineUrl = `${config.AUTH_SERVICE_URL}/api/v1/internal/streams/${streamId}/offline`;
+    await fetch(offlineUrl, {
+      method: "POST",
+      headers: { "X-Internal-Secret": config.INTERNAL_SECRET },
+    });
+    logger.info({ streamId }, "Notified auth-service of stream offline");
+  } catch (err) {
+    logger.error({ err, streamId }, "Failed to call auth-service streamOffline endpoint");
+  }
+
   await kafkaService.publishStreamEnded({
     streamId,
     userId,
@@ -45,7 +57,7 @@ export async function onPublishDoneHandler(req: Request, res: Response) {
 
   logger.info(
     { streamId, userId, durationSeconds },
-    "✅ Stream ended — published stream.ended event"
+    "✅ Publisher disconnected — stream marked offline, keys remain valid"
   );
 
   return res.status(200).send("ok");

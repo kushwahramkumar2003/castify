@@ -55,10 +55,90 @@ export async function uploadPlaylist(
   logger.debug({ objectKey }, "Playlist uploaded");
 }
 
+export async function downloadPlaylistText(
+  objectKey: string
+): Promise<string | null> {
+  try {
+    const stream = await minioClient.getObject(config.STORAGE_BUCKET, objectKey);
+    const chunks: Buffer[] = [];
+    for await (const chunk of stream) {
+      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    }
+    return Buffer.concat(chunks).toString("utf-8");
+  } catch (err: unknown) {
+    const code =
+      err && typeof err === "object" && "code" in err
+        ? String((err as { code: string }).code)
+        : "";
+    if (code === "NoSuchKey" || code === "NotFound") return null;
+    logger.warn({ err, objectKey }, "downloadPlaylistText failed");
+    return null;
+  }
+}
+
+/** List .ts basenames under a prefix (e.g. live/<key>/720p/) */
+export async function listSegmentBasenames(
+  prefix: string
+): Promise<Set<string>> {
+  const names = new Set<string>();
+  const p = prefix.endsWith("/") ? prefix : `${prefix}/`;
+  for await (const obj of minioClient.listObjectsV2(
+    config.STORAGE_BUCKET,
+    p,
+    true
+  )) {
+    if (!obj.name) continue;
+    const base = obj.name.split("/").pop() ?? "";
+    if (base.endsWith(".ts")) names.add(base);
+  }
+  return names;
+}
+
 export async function uploadPlaylistFromDisk(
   localPath: string,
-  objectKey: string
+  objectKey: string,
+  options?: { finalize?: boolean; merge?: boolean; discontinuity?: boolean }
 ): Promise<void> {
-  const content = await readFile(localPath, "utf-8");
+  const incoming = await readFile(localPath, "utf-8");
+  let content = incoming;
+
+  if (options?.merge !== false) {
+    const { mergeHlsPlaylists, filterPlaylistToExistingSegs } = await import(
+      "./playlistMerge.ts"
+    );
+    const existing = await downloadPlaylistText(objectKey);
+    content = mergeHlsPlaylists(existing, incoming, {
+      finalize: options?.finalize === true,
+      discontinuity: options?.discontinuity === true,
+    });
+
+    // Strip any playlist rows that point at missing objects (broken live edge)
+    const slash = objectKey.lastIndexOf("/");
+    const prefix = slash >= 0 ? objectKey.slice(0, slash + 1) : objectKey;
+    const present = await listSegmentBasenames(prefix);
+    const before = content;
+    content = filterPlaylistToExistingSegs(content, present);
+    if (content !== before) {
+      logger.info(
+        { objectKey, present: present.size },
+        "Trimmed playlist entries for missing MinIO segments"
+      );
+    }
+  } else if (options?.finalize) {
+    if (!content.includes("#EXT-X-ENDLIST")) {
+      content = content.trimEnd() + "\n#EXT-X-ENDLIST\n";
+    }
+  } else {
+    content = content
+      .split(/\r?\n/)
+      .filter((l) => l.trim() !== "#EXT-X-ENDLIST")
+      .join("\n");
+    if (!content.endsWith("\n")) content += "\n";
+  }
+
+  if (options?.finalize && !content.includes("#EXT-X-ENDLIST")) {
+    content = content.trimEnd() + "\n#EXT-X-ENDLIST\n";
+  }
+
   await uploadPlaylist(content, objectKey);
 }

@@ -316,6 +316,7 @@ All variables are validated by Zod in `src/config.ts`. If any required variable 
 | `NODE_ENV` | `development` | `development` \| `production` |
 | `LOG_LEVEL` | `info` | `trace` \| `debug` \| `info` \| `warn` \| `error` |
 | `AUTH_SERVICE_URL` | `http://localhost:3000` | URL of the auth-service |
+| `INTERNAL_SECRET` | required | Shared 32+ character secret used to authenticate calls to auth-service |
 | `KAFKA_BROKERS` | `localhost:9092` | Comma-separated Kafka broker list |
 | `KAFKA_CLIENT_ID` | `rtmp-ingest` | Identifies this producer in Kafka |
 | `KAFKA_TOPIC_STREAM_STARTED` | `stream.started` | Topic for stream start events |

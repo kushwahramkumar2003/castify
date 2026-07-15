@@ -37,6 +37,7 @@ export async function connectConsumer(): Promise<void> {
         segmentKey: event.segmentKey,
         isMaster: event.isMaster ?? false,
         masterPlaylist: event.masterPlaylist,
+        discontinuity: event.discontinuity === true,
       });
     }
   );

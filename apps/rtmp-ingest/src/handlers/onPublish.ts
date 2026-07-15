@@ -56,6 +56,18 @@ export async function onPublishHandler(req: Request, res: Response) {
     startedAt: new Date(),
   });
 
+  // Call auth-service to mark the stream as live in the database
+  try {
+    const startUrl = `${config.AUTH_SERVICE_URL}/api/v1/internal/streams/${streamId}/start`;
+    await fetch(startUrl, {
+      method: "POST",
+      headers: { "X-Internal-Secret": config.INTERNAL_SECRET },
+    });
+    logger.info({ streamId }, "Notified auth-service of stream start");
+  } catch (err) {
+    logger.error({ err, streamId }, "Failed to call auth-service startStream endpoint");
+  }
+
   await kafkaService.publishStreamStarted({
     streamId: streamId!,
     userId: userId!,

@@ -638,9 +638,8 @@ export function StreamPlayerMonitor({
                 <p className="flex items-start gap-2">
                   <RiWifiOffLine className="size-3.5 shrink-0 mt-0.5" />
                   <span>
-                    <strong className="font-semibold">Disconnected.</strong> Stop streaming
-                    in OBS only — session stays open. Restart OBS with the same key to add
-                    more clips.
+                    <strong className="font-semibold">Not live.</strong> Start OBS with this
+                    session key, or end the broadcast if you are finished.
                   </span>
                 </p>
               ) : (

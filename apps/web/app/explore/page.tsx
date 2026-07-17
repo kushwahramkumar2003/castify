@@ -11,47 +11,46 @@ import {
   RiSearchLine,
   RiLiveLine,
   RiUserHeartLine,
-  RiVideoLine,
   RiArrowRightSLine,
+  RiVideoLine,
 } from "react-icons/ri";
+import { StreamCardMedia } from "@/components/viewer/stream-card-media";
 
 function StreamCard({ s }: { s: BrowseStreamCard }) {
   return (
     <Link
       href={`/watch/${s.id}`}
-      className="supabase-panel supabase-panel-interactive p-4 flex flex-col gap-3 min-w-0 group"
+      className="supabase-panel supabase-panel-interactive p-3 sm:p-4 flex flex-col gap-3 min-w-0 group"
     >
-      <div className="flex items-start justify-between gap-2">
-        <div className="flex items-center gap-2.5 min-w-0">
-          <div
-            className={`flex size-9 shrink-0 items-center justify-center rounded-md border ${
-              s.isLive
-                ? "bg-red-500/10 border-red-500/25 text-red-400"
-                : "bg-emerald-500/10 border-emerald-500/25 text-emerald-400"
+      <StreamCardMedia
+        thumbnailUrl={s.thumbnailUrl}
+        isLive={s.isLive}
+        title={s.title}
+      />
+
+      <div className="flex items-start justify-between gap-2 min-w-0">
+        <div className="min-w-0">
+          <p className="text-sm font-semibold truncate group-hover:text-emerald-400 transition-colors">
+            {s.title || "Untitled stream"}
+          </p>
+          <p className="text-[11px] text-muted-foreground font-mono truncate mt-0.5">
+            @{s.creator.username}
+            {typeof s.currentViewers === "number" && s.isLive
+              ? ` · ${s.currentViewers} watching`
+              : ""}
+          </p>
+        </div>
+        {!s.isLive && (
+          <Badge
+            className={`shrink-0 text-[9px] font-bold px-2 py-0.5 rounded border ${
+              s.endedAt
+                ? "bg-neutral-800 text-neutral-400 border-border"
+                : "bg-emerald-500/10 text-emerald-400 border-emerald-500/25"
             }`}
           >
-            <RiVideoLine className="size-4" />
-          </div>
-          <div className="min-w-0">
-            <p className="text-sm font-semibold truncate group-hover:text-emerald-400 transition-colors">
-              {s.title || "Untitled stream"}
-            </p>
-            <p className="text-[11px] text-muted-foreground font-mono truncate mt-0.5">
-              @{s.creator.username}
-            </p>
-          </div>
-        </div>
-        <Badge
-          className={`shrink-0 text-[9px] font-bold px-2 py-0.5 rounded border ${
-            s.isLive
-              ? "bg-red-500/15 text-red-400 border-red-500/30"
-              : s.endedAt
-              ? "bg-neutral-800 text-neutral-400 border-border"
-              : "bg-emerald-500/10 text-emerald-400 border-emerald-500/25"
-          }`}
-        >
-          {s.isLive ? "LIVE" : s.endedAt ? "ENDED" : "READY"}
-        </Badge>
+            {s.endedAt ? "ENDED" : "READY"}
+          </Badge>
+        )}
       </div>
 
       {s.tags?.length > 0 && (

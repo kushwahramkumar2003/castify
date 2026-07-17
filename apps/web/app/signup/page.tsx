@@ -18,6 +18,7 @@ import {
   RiLoader4Line,
   RiErrorWarningLine,
 } from "react-icons/ri";
+import { OAuthButtons } from "@/components/auth/oauth-buttons";
 
 const signupSchema = z.object({
   username: z
@@ -88,7 +89,9 @@ export default function SignupPage() {
             </div>
           </div>
 
-          <form onSubmit={handleSubmit(onSubmit)} className="space-y-3.5 sm:space-y-4" noValidate>
+          <OAuthButtons next="/library" />
+
+          <form onSubmit={handleSubmit(onSubmit)} className="space-y-3.5 sm:space-y-4 mt-4" noValidate>
             <div className="grid grid-cols-1 xs:grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <label

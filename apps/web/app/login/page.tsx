@@ -18,6 +18,7 @@ import {
   RiLoader4Line,
   RiErrorWarningLine,
 } from "react-icons/ri";
+import { OAuthButtons } from "@/components/auth/oauth-buttons";
 
 const loginSchema = z.object({
   email: z.string().min(1, "Email is required").email("Invalid email"),
@@ -31,6 +32,12 @@ function LoginFormInner() {
   const { login } = useAuth();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showPw, setShowPw] = useState(false);
+  const nextParam = searchParams.get("next");
+  const safeNext =
+    nextParam && nextParam.startsWith("/") && !nextParam.startsWith("//")
+      ? nextParam
+      : "/library";
+  const oauthError = searchParams.get("error");
 
   const {
     register,
@@ -42,9 +49,6 @@ function LoginFormInner() {
     setIsSubmitting(true);
     try {
       await login(data.email, data.password);
-      const next = searchParams.get("next");
-      const safeNext =
-        next && next.startsWith("/") && !next.startsWith("//") ? next : "/explore";
       router.push(safeNext);
     } catch (err: unknown) {
       const msg =
@@ -74,12 +78,20 @@ function LoginFormInner() {
             <div>
               <h1 className="text-xl sm:text-2xl font-bold tracking-tight">Welcome back</h1>
               <p className="mt-1 text-xs sm:text-sm text-muted-foreground">
-                Sign in to your Castify studio
+                Sign in to watch, join streams, or open Studio
               </p>
             </div>
           </div>
 
-          <form onSubmit={handleSubmit(onSubmit)} className="space-y-4 sm:space-y-5" noValidate>
+          {oauthError && (
+            <div className="mb-4 rounded-md border border-red-500/25 bg-red-500/10 px-3 py-2 text-[11px] text-red-400">
+              {oauthError}
+            </div>
+          )}
+
+          <OAuthButtons next={safeNext} />
+
+          <form onSubmit={handleSubmit(onSubmit)} className="space-y-4 sm:space-y-5 mt-4" noValidate>
             <div className="space-y-1.5">
               <label
                 htmlFor="email"

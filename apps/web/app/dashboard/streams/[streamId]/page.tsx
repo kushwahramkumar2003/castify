@@ -25,6 +25,7 @@ const StreamPlayerMonitor = dynamic(
   }
 );
 import { PageHeader } from "@/components/dashboard/page-header";
+import { StreamInvitePanel } from "@/components/dashboard/stream-invite-panel";
 import {
   RiArrowLeftLine,
   RiTimeLine,
@@ -531,6 +532,13 @@ export default function StreamStudioPage() {
             />
           )}
 
+          {!isEnded && streamId && (
+            <StreamInvitePanel
+              streamId={streamId}
+              isPrivate={!!stream.isPrivate}
+            />
+          )}
+
           {isEnded && (
             <div className="callout-danger">
               <RiErrorWarningLine className="size-5 shrink-0 text-red-400 mt-0.5" />
@@ -555,9 +563,8 @@ export default function StreamStudioPage() {
               <div className="text-xs leading-relaxed min-w-0">
                 <span className="font-bold block mb-0.5 text-emerald-400">Session ready</span>
                 <span className="text-muted-foreground">
-                  Point OBS at the server URL and stream key above. Stopping OBS keeps this
-                  session READY so you can reconnect. Use End Broadcast only when you are done
-                  permanently.
+                  Point OBS at the server URL and stream key above. Stopping OBS or using
+                  End Broadcast both end this session and revoke the ingest key.
                 </span>
               </div>
             </div>

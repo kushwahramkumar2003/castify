@@ -177,14 +177,27 @@ function WatchInner() {
   }
 
   if (error || !data) {
+    const isPrivate =
+      error?.toLowerCase().includes("private") ||
+      error?.toLowerCase().includes("invite");
     return (
-      <div className="supabase-panel empty-state space-y-3">
+      <div className="supabase-panel empty-state space-y-3 max-w-lg mx-auto">
         <p className="text-sm font-bold">{error || "Stream not found"}</p>
-        <div className="flex gap-2">
+        {isPrivate && (
+          <p className="text-xs text-muted-foreground">
+            Redeem the creator&apos;s invite code to unlock this stream.
+          </p>
+        )}
+        <div className="flex flex-wrap gap-2 justify-center">
+          {isPrivate && (
+            <Button size="sm" className="btn-primary-flat h-8 text-xs" asChild>
+              <Link href="/library?tab=join">Join with code</Link>
+            </Button>
+          )}
           <Button size="sm" className="btn-secondary-flat h-8 text-xs" asChild>
-            <Link href="/explore">Back to Explore</Link>
+            <Link href="/library">Library</Link>
           </Button>
-          <Button size="sm" className="btn-primary-flat h-8 text-xs" onClick={() => load()}>
+          <Button size="sm" className="btn-secondary-flat h-8 text-xs" onClick={() => load()}>
             Retry
           </Button>
         </div>

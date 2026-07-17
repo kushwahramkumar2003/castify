@@ -12,6 +12,8 @@ import {
   RiRefreshLine,
   RiSignalTowerLine,
   RiWifiOffLine,
+  RiPictureInPicture2Line,
+  RiSkipForwardMiniLine,
 } from "react-icons/ri";
 
 type HlsInstance = {
@@ -71,6 +73,9 @@ export function HlsViewerPlayer({
   const [selectedQuality, setSelectedQuality] = useState<string>("auto");
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
+  const [volume, setVolume] = useState(1);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
   const [connecting, setConnecting] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showQualityMenu, setShowQualityMenu] = useState(false);
@@ -243,16 +248,94 @@ export function HlsViewerPlayer({
     else v.requestFullscreen();
   };
 
+  const goLiveEdge = () => {
+    const v = videoRef.current;
+    const hls = hlsRef.current;
+    if (!v) return;
+    if (hls && typeof hls.liveSyncPosition === "number") {
+      v.currentTime = Math.max(0, hls.liveSyncPosition - 0.3);
+    } else if (Number.isFinite(v.duration) && v.duration > 0) {
+      v.currentTime = Math.max(0, v.duration - 1);
+    }
+    v.play().then(() => setIsPlaying(true)).catch(() => {});
+  };
+
+  const togglePiP = async () => {
+    const v = videoRef.current;
+    if (!v || !document.pictureInPictureEnabled) return;
+    try {
+      if (document.pictureInPictureElement) {
+        await document.exitPictureInPicture();
+      } else {
+        await v.requestPictureInPicture();
+      }
+    } catch {
+      /* ignore */
+    }
+  };
+
+  // Time updates + keyboard shortcuts
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    const onTime = () => {
+      setCurrentTime(v.currentTime);
+      setDuration(Number.isFinite(v.duration) ? v.duration : 0);
+    };
+    v.addEventListener("timeupdate", onTime);
+    v.addEventListener("durationchange", onTime);
+    return () => {
+      v.removeEventListener("timeupdate", onTime);
+      v.removeEventListener("durationchange", onTime);
+    };
+  }, [activeUrl]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      const v = videoRef.current;
+      if (!v) return;
+      if (e.key === " " || e.key === "k") {
+        e.preventDefault();
+        togglePlay();
+      } else if (e.key === "m") {
+        e.preventDefault();
+        toggleMute();
+      } else if (e.key === "f") {
+        e.preventDefault();
+        toggleFs();
+      } else if (e.key === "ArrowRight" && !isLive) {
+        e.preventDefault();
+        v.currentTime = Math.min(v.duration || 0, v.currentTime + 5);
+      } else if (e.key === "ArrowLeft" && !isLive) {
+        e.preventDefault();
+        v.currentTime = Math.max(0, v.currentTime - 5);
+      } else if (e.key === "l" && isLive) {
+        e.preventDefault();
+        goLiveEdge();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
+
   const retry = () => {
     setError(null);
     setConnecting(true);
-    // force effect by remounting source via quality toggle trick
     setSelectedQuality((q) => q);
     const hls = hlsRef.current;
     if (hls && activeUrl) {
       hls.loadSource(withCb(activeUrl, Date.now()));
       hls.startLoad();
     }
+  };
+
+  const formatTime = (s: number) => {
+    if (!Number.isFinite(s) || s < 0) return "0:00";
+    const m = Math.floor(s / 60);
+    const sec = Math.floor(s % 60);
+    return `${m}:${sec.toString().padStart(2, "0")}`;
   };
 
   return (
@@ -282,7 +365,7 @@ export function HlsViewerPlayer({
                 : "bg-neutral-800/80 text-muted-foreground border-border"
             }`}
           >
-            {isLive ? "● LIVE" : "● OFFLINE"}
+            {isLive ? "● LIVE" : "● VOD"}
           </span>
         </div>
 
@@ -314,89 +397,152 @@ export function HlsViewerPlayer({
         )}
 
         {/* Controls */}
-        <div className="absolute bottom-0 inset-x-0 p-2.5 sm:p-3 flex items-center gap-2 bg-gradient-to-t from-black/90 to-transparent opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
-          <button
-            type="button"
-            onClick={togglePlay}
-            className="p-1.5 text-white hover:text-emerald-400"
-            aria-label={isPlaying ? "Pause" : "Play"}
-          >
-            {isPlaying ? (
-              <RiPauseMiniFill className="size-5" />
-            ) : (
-              <RiPlayMiniFill className="size-5" />
-            )}
-          </button>
-          <button
-            type="button"
-            onClick={toggleMute}
-            className="p-1.5 text-white hover:text-emerald-400"
-            aria-label={isMuted ? "Unmute" : "Mute"}
-          >
-            {isMuted ? (
-              <RiVolumeMuteLine className="size-4" />
-            ) : (
-              <RiVolumeUpLine className="size-4" />
-            )}
-          </button>
-
-          <div className="flex-1" />
-
-          {/* Quality menu */}
-          <div className="relative">
+        <div className="absolute bottom-0 inset-x-0 p-2.5 sm:p-3 space-y-1.5 bg-gradient-to-t from-black/90 to-transparent opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
+          {!isLive && duration > 0 && (
+            <input
+              type="range"
+              min={0}
+              max={duration}
+              step={0.1}
+              value={Math.min(currentTime, duration)}
+              onChange={(e) => {
+                const t = Number(e.target.value);
+                if (videoRef.current) videoRef.current.currentTime = t;
+                setCurrentTime(t);
+              }}
+              className="w-full h-1 accent-emerald-400 cursor-pointer"
+              aria-label="Seek"
+            />
+          )}
+          <div className="flex items-center gap-1.5 sm:gap-2">
             <button
               type="button"
-              onClick={() => setShowQualityMenu((v) => !v)}
-              className="flex items-center gap-1.5 px-2 py-1 rounded text-[10px] font-mono text-white/90 hover:bg-white/10 border border-white/10"
+              onClick={togglePlay}
+              className="p-1.5 text-white hover:text-emerald-400"
+              aria-label={isPlaying ? "Pause" : "Play"}
             >
-              <RiSettings3Line className="size-3.5" />
-              {selectedQuality === "auto" ? "Auto" : selectedQuality}
+              {isPlaying ? (
+                <RiPauseMiniFill className="size-5" />
+              ) : (
+                <RiPlayMiniFill className="size-5" />
+              )}
             </button>
-            {showQualityMenu && (
-              <div className="absolute bottom-full right-0 mb-1.5 w-28 rounded-md border border-border bg-[#141414] shadow-xl p-1 z-20">
-                <button
-                  type="button"
-                  className={`w-full text-left px-2 py-1.5 rounded text-[11px] ${
-                    selectedQuality === "auto"
-                      ? "bg-emerald-500/15 text-emerald-400"
-                      : "text-foreground/80 hover:bg-[#1a1a1a]"
-                  }`}
-                  onClick={() => {
-                    setSelectedQuality("auto");
-                    setShowQualityMenu(false);
-                  }}
-                >
-                  Auto (ABR)
-                </button>
-                {qualityOptions.map((q) => (
+            <button
+              type="button"
+              onClick={toggleMute}
+              className="p-1.5 text-white hover:text-emerald-400"
+              aria-label={isMuted ? "Unmute" : "Mute"}
+            >
+              {isMuted ? (
+                <RiVolumeMuteLine className="size-4" />
+              ) : (
+                <RiVolumeUpLine className="size-4" />
+              )}
+            </button>
+            <input
+              type="range"
+              min={0}
+              max={1}
+              step={0.05}
+              value={isMuted ? 0 : volume}
+              onChange={(e) => {
+                const vol = Number(e.target.value);
+                setVolume(vol);
+                if (videoRef.current) {
+                  videoRef.current.volume = vol;
+                  videoRef.current.muted = vol === 0;
+                  setIsMuted(vol === 0);
+                }
+              }}
+              className="w-16 sm:w-20 h-1 accent-emerald-400 cursor-pointer hidden xs:block"
+              aria-label="Volume"
+            />
+            {!isLive && (
+              <span className="text-[10px] font-mono text-white/70 tabular-nums">
+                {formatTime(currentTime)} / {formatTime(duration)}
+              </span>
+            )}
+            {isLive && (
+              <button
+                type="button"
+                onClick={goLiveEdge}
+                className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono text-red-300 hover:bg-white/10"
+                title="Go to live edge (L)"
+              >
+                <RiSkipForwardMiniLine className="size-3.5" />
+                Live edge
+              </button>
+            )}
+
+            <div className="flex-1" />
+
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setShowQualityMenu((v) => !v)}
+                className="flex items-center gap-1.5 px-2 py-1 rounded text-[10px] font-mono text-white/90 hover:bg-white/10 border border-white/10"
+              >
+                <RiSettings3Line className="size-3.5" />
+                {selectedQuality === "auto" ? "Auto" : selectedQuality}
+              </button>
+              {showQualityMenu && (
+                <div className="absolute bottom-full right-0 mb-1.5 w-28 rounded-md border border-border bg-[#141414] shadow-xl p-1 z-20">
                   <button
-                    key={q}
                     type="button"
                     className={`w-full text-left px-2 py-1.5 rounded text-[11px] ${
-                      selectedQuality === q
+                      selectedQuality === "auto"
                         ? "bg-emerald-500/15 text-emerald-400"
                         : "text-foreground/80 hover:bg-[#1a1a1a]"
                     }`}
                     onClick={() => {
-                      setSelectedQuality(q);
+                      setSelectedQuality("auto");
                       setShowQualityMenu(false);
                     }}
                   >
-                    {q}
+                    Auto (ABR)
                   </button>
-                ))}
-              </div>
-            )}
-          </div>
+                  {qualityOptions.map((q) => (
+                    <button
+                      key={q}
+                      type="button"
+                      className={`w-full text-left px-2 py-1.5 rounded text-[11px] ${
+                        selectedQuality === q
+                          ? "bg-emerald-500/15 text-emerald-400"
+                          : "text-foreground/80 hover:bg-[#1a1a1a]"
+                      }`}
+                      onClick={() => {
+                        setSelectedQuality(q);
+                        setShowQualityMenu(false);
+                      }}
+                    >
+                      {q}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
 
-          <button
-            type="button"
-            onClick={toggleFs}
-            className="p-1.5 text-white hover:text-emerald-400"
-            aria-label="Fullscreen"
-          >
-            <RiFullscreenLine className="size-4" />
-          </button>
+            {typeof document !== "undefined" &&
+              document.pictureInPictureEnabled && (
+                <button
+                  type="button"
+                  onClick={togglePiP}
+                  className="p-1.5 text-white hover:text-emerald-400"
+                  aria-label="Picture in picture"
+                >
+                  <RiPictureInPicture2Line className="size-4" />
+                </button>
+              )}
+
+            <button
+              type="button"
+              onClick={toggleFs}
+              className="p-1.5 text-white hover:text-emerald-400"
+              aria-label="Fullscreen"
+            >
+              <RiFullscreenLine className="size-4" />
+            </button>
+          </div>
         </div>
       </div>
     </div>

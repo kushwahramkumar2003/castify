@@ -50,7 +50,7 @@ function StreamRow({ stream }: { stream: Stream }) {
     >
       <div className="flex items-center gap-2.5 sm:gap-3.5 min-w-0 flex-1">
         <div
-          className={`flex size-8 sm:size-9 shrink-0 items-center justify-center rounded text-muted-foreground ${
+          className={`relative flex size-10 sm:size-12 shrink-0 items-center justify-center rounded overflow-hidden ${
             stream.isLive
               ? "bg-red-500/10 text-red-400 border border-red-500/20"
               : isReady
@@ -58,7 +58,16 @@ function StreamRow({ stream }: { stream: Stream }) {
               : "bg-muted/30 border border-border/40"
           }`}
         >
-          <RiVideoLine className="size-4" />
+          {stream.thumbnailUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={stream.thumbnailUrl}
+              alt=""
+              className="absolute inset-0 w-full h-full object-cover"
+            />
+          ) : (
+            <RiVideoLine className="size-4" />
+          )}
         </div>
         <div className="min-w-0 flex-1">
           <p className="text-xs sm:text-sm font-semibold truncate text-foreground/90 group-hover:text-foreground transition-colors">

@@ -80,10 +80,27 @@ class ApiClient {
     return this.request<null>("/auth/logout", { method: "POST" });
   }
 
+  getOAuthProviders() {
+    return this.request<{
+      providers: { id: string; label: string; enabled: boolean }[];
+    }>("/auth/oauth/providers");
+  }
+
+  /** Full URL for browser navigation to OAuth start (cookie set on callback). */
+  oauthStartUrl(provider: string, next = "/library") {
+    const base = this.baseUrl;
+    const n = next.startsWith("/") ? next : "/library";
+    return `${base}/auth/oauth/${provider}?next=${encodeURIComponent(n)}`;
+  }
+
   // ── User ──────────────────────────────────────────────────────────────
 
   getMe() {
     return this.request<UserProfile>("/user/me");
+  }
+
+  getEntitlements() {
+    return this.request<PlanEntitlements>("/user/entitlements");
   }
 
   updateMe(data: { fullName?: string; bio?: string; avatarUrl?: string }) {
@@ -216,6 +233,76 @@ class ApiClient {
     );
   }
 
+  redeemInvite(code: string) {
+    return this.request<{
+      streamId: string;
+      alreadyHadAccess: boolean;
+      watchPath: string;
+    }>("/browse/join", {
+      method: "POST",
+      body: JSON.stringify({ code }),
+    });
+  }
+
+  // ── Invites (creator) ─────────────────────────────────────────────────
+
+  createStreamInvite(
+    streamId: string,
+    body?: {
+      kind?: "CODE" | "LINK";
+      label?: string;
+      maxUses?: number | null;
+      expiresInHours?: number | null;
+    }
+  ) {
+    return this.request<{
+      invite: StreamInviteRow;
+      code: string;
+    }>(`/user/streams/${streamId}/invites`, {
+      method: "POST",
+      body: JSON.stringify(body ?? { kind: "CODE" }),
+    });
+  }
+
+  listStreamInvites(streamId: string) {
+    return this.request<StreamInviteRow[]>(
+      `/user/streams/${streamId}/invites`
+    );
+  }
+
+  revokeStreamInvite(streamId: string, inviteId: string) {
+    return this.request<{ id: string; revokedAt: string | null }>(
+      `/user/streams/${streamId}/invites/${inviteId}`,
+      { method: "DELETE" }
+    );
+  }
+
+  // ── Library ───────────────────────────────────────────────────────────
+
+  libraryLive(params?: { q?: string; limit?: number }) {
+    const sp = new URLSearchParams();
+    if (params?.q) sp.set("q", params.q);
+    if (params?.limit) sp.set("limit", String(params.limit));
+    const qs = sp.toString();
+    return this.request<LibraryLiveCard[]>(
+      `/library/live${qs ? `?${qs}` : ""}`
+    );
+  }
+
+  libraryVods(params?: { q?: string; limit?: number }) {
+    const sp = new URLSearchParams();
+    if (params?.q) sp.set("q", params.q);
+    if (params?.limit) sp.set("limit", String(params.limit));
+    const qs = sp.toString();
+    return this.request<LibraryVodCard[]>(
+      `/library/vods${qs ? `?${qs}` : ""}`
+    );
+  }
+
+  libraryVod(vodId: string) {
+    return this.request<LibraryVodDetail>(`/library/vods/${vodId}`);
+  }
+
   followStatus(username: string) {
     return this.request<{ isFollowing: boolean; isSelf: boolean }>(
       `/user/follow/${username}/status`
@@ -225,6 +312,15 @@ class ApiClient {
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
+export type PlanTier = "FREE" | "PRO" | "ENTERPRISE";
+
+export interface PlanEntitlements {
+  plan: PlanTier;
+  maxQuality: string;
+  allowedQualities: string[];
+  labels: string;
+}
+
 export interface UserProfile {
   id: string;
   username: string;
@@ -233,6 +329,8 @@ export interface UserProfile {
   email: string;
   avatarUrl: string | null;
   bio: string | null;
+  plan?: PlanTier;
+  entitlements?: PlanEntitlements;
   // Not always present — login endpoint omits these; /me includes them
   createdAt?: string;
   updatedAt?: string;
@@ -313,6 +411,8 @@ export interface CreateStreamPayload {
   qualities?: string[];
   isPrivate?: boolean;
   scheduledAt?: string | null;
+  thumbnailBase64?: string;
+  thumbnailContentType?: string;
 }
 
 export interface CreateStreamResponse {
@@ -339,6 +439,93 @@ export interface BrowseStreamCard {
     username: string;
     fullName: string | null;
     avatarUrl: string | null;
+  };
+}
+
+export interface StreamInviteRow {
+  id: string;
+  streamId: string;
+  kind: "CODE" | "LINK";
+  codeHint: string | null;
+  label: string | null;
+  maxUses: number | null;
+  useCount: number;
+  expiresAt: string | null;
+  revokedAt: string | null;
+  createdAt: string;
+}
+
+export interface LibraryLiveCard {
+  id: string;
+  title: string | null;
+  tags: string[];
+  isLive: boolean;
+  isPrivate: boolean;
+  qualities: string[];
+  peakViewers: number;
+  totalViews: number;
+  currentViewers: number;
+  thumbnailUrl: string | null;
+  startedAt: string | null;
+  createdAt: string;
+  creator: {
+    id: string;
+    username: string;
+    fullName: string | null;
+    avatarUrl: string | null;
+  };
+}
+
+export interface LibraryVodCard {
+  id: string;
+  streamId: string;
+  title: string | null;
+  durationSecs: number | null;
+  thumbnailUrl: string | null;
+  status: string;
+  createdAt: string;
+  stream: {
+    id: string;
+    title: string | null;
+    isPrivate: boolean;
+    qualities: string[];
+  };
+  creator: {
+    id: string;
+    username: string;
+    fullName: string | null;
+    avatarUrl: string | null;
+  };
+}
+
+export interface LibraryVodDetail {
+  vod: {
+    id: string;
+    streamId: string;
+    title: string | null;
+    durationSecs: number | null;
+    thumbnailUrl: string | null;
+    status: string;
+    createdAt: string;
+  };
+  stream: {
+    id: string;
+    title: string | null;
+    isPrivate: boolean;
+    qualities: string[];
+  };
+  creator: {
+    id: string;
+    username: string;
+    fullName: string | null;
+    avatarUrl: string | null;
+    bio: string | null;
+  };
+  playback: {
+    mode: "vod" | "offline";
+    masterUrl: string | null;
+    qualities: string[];
+    qualityUrls: Record<string, string>;
   };
 }
 

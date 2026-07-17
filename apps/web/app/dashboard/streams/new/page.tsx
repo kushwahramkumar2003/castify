@@ -1,11 +1,12 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { api } from "@/lib/api";
+import { Badge } from "@/components/ui/badge";
+import { api, type PlanEntitlements } from "@/lib/api";
 import { PageHeader } from "@/components/dashboard/page-header";
 import {
   RiTvLine,
@@ -24,6 +25,7 @@ import {
   RiErrorWarningLine,
   RiExternalLinkLine,
   RiTimeLine,
+  RiFlashlightLine,
 } from "react-icons/ri";
 import { toast } from "sonner";
 
@@ -31,10 +33,11 @@ const RTMP_SERVER = "rtmp://localhost:1935/live";
 const PRIMARY = "#3ecf8e";
 
 const QUALITIES = [
-  { key: "1080p", label: "1080p", detail: "Source · ~6 Mbps", rec: false },
+  { key: "2k", label: "2K", detail: "1440p · ~8 Mbps", rec: false },
+  { key: "1080p", label: "1080p", detail: "Source · ~5 Mbps", rec: false },
   { key: "720p", label: "720p", detail: "High · ~3 Mbps", rec: true },
   { key: "480p", label: "480p", detail: "Medium · ~1.5 Mbps", rec: true },
-  { key: "360p", label: "360p", detail: "Low · ~0.8 Mbps", rec: false },
+  { key: "360p", label: "360p", detail: "Low · ~0.6 Mbps", rec: false },
 ] as const;
 
 export default function NewStreamPage() {
@@ -47,6 +50,59 @@ export default function NewStreamPage() {
   const [scheduledAt, setScheduledAt] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [titleError, setTitleError] = useState<string | null>(null);
+  const [entitlements, setEntitlements] = useState<PlanEntitlements | null>(null);
+  const [thumbnailPreview, setThumbnailPreview] = useState<string | null>(null);
+  const [thumbnailBase64, setThumbnailBase64] = useState<string | null>(null);
+  const [thumbnailContentType, setThumbnailContentType] = useState<string | null>(
+    null
+  );
+
+  useEffect(() => {
+    api
+      .getEntitlements()
+      .then((r) => {
+        const e = r.data;
+        setEntitlements(e);
+        // Drop any selected rungs above plan
+        setSelectedQualities((prev) => {
+          const next = prev.filter((q) => e.allowedQualities.includes(q));
+          return next.length ? next : e.allowedQualities.slice(0, 2);
+        });
+      })
+      .catch(() => {
+        setEntitlements({
+          plan: "FREE",
+          maxQuality: "720p",
+          allowedQualities: ["720p", "480p", "360p"],
+          labels: "Free Node",
+        });
+      });
+  }, []);
+
+  const onThumbnailPick = (file: File | null) => {
+    if (!file) {
+      setThumbnailPreview(null);
+      setThumbnailBase64(null);
+      setThumbnailContentType(null);
+      return;
+    }
+    if (!file.type.startsWith("image/")) {
+      toast.error("Choose an image file (JPEG, PNG, or WebP)");
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error("Thumbnail must be under 5 MB");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = String(reader.result || "");
+      setThumbnailPreview(dataUrl);
+      setThumbnailBase64(dataUrl);
+      setThumbnailContentType(file.type);
+    };
+    reader.readAsDataURL(file);
+  };
 
   const [createdKey, setCreatedKey] = useState<string | null>(null);
   const [createdStreamId, setCreatedStreamId] = useState<string | null>(null);
@@ -57,6 +113,13 @@ export default function NewStreamPage() {
   const step: 1 | 2 = createdKey ? 2 : 1;
 
   const toggleQuality = (q: string) => {
+    const allowed = entitlements?.allowedQualities ?? ["720p", "480p", "360p"];
+    if (!allowed.includes(q)) {
+      toast.error(
+        `${q} requires a higher plan (your max is ${entitlements?.maxQuality ?? "720p"}). Upgrade in Billing.`
+      );
+      return;
+    }
     setSelectedQualities((prev) => {
       if (prev.includes(q)) {
         if (prev.length === 1) {
@@ -143,6 +206,8 @@ export default function NewStreamPage() {
         qualities: selectedQualities,
         isPrivate,
         scheduledAt: scheduleType === "later" && scheduledAt ? scheduledAt : null,
+        thumbnailBase64: thumbnailBase64 || undefined,
+        thumbnailContentType: thumbnailContentType || undefined,
       });
       if (res.data) {
         setCreatedKey(res.data.streamKey.key);
@@ -287,6 +352,54 @@ export default function NewStreamPage() {
                 )}
               </div>
 
+              {/* Thumbnail */}
+              <div className="space-y-2">
+                <label className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider block">
+                  Cover thumbnail{" "}
+                  <span className="normal-case font-medium tracking-normal text-muted-foreground/50">
+                    (optional)
+                  </span>
+                </label>
+                <div className="flex flex-col sm:flex-row gap-3 items-start">
+                  <div className="w-full sm:w-44 aspect-video rounded-md border border-border bg-[#121212] overflow-hidden flex items-center justify-center shrink-0">
+                    {thumbnailPreview ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={thumbnailPreview}
+                        alt="Thumbnail preview"
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <span className="text-[10px] text-muted-foreground px-2 text-center">
+                        16:9 image
+                      </span>
+                    )}
+                  </div>
+                  <div className="space-y-2 min-w-0 flex-1">
+                    <Input
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp,image/gif"
+                      className="h-10 text-xs supabase-input file:mr-3 file:text-xs"
+                      onChange={(e) => onThumbnailPick(e.target.files?.[0] ?? null)}
+                    />
+                    <p className="text-[10px] text-muted-foreground leading-relaxed">
+                      Shown on Explore and Library cards. JPEG/PNG/WebP, max 5 MB.
+                    </p>
+                    {thumbnailPreview && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 text-[10px]"
+                        onClick={() => onThumbnailPick(null)}
+                      >
+                        Remove
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              </div>
+
               {/* Tags */}
               <div className="space-y-1.5">
                 <label
@@ -326,16 +439,31 @@ export default function NewStreamPage() {
 
               {/* Qualities */}
               <div className="space-y-2">
-                <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
                   <label className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider block">
                     Transcoding Qualities
                   </label>
-                  <span className="text-[10px] font-mono text-muted-foreground/60">
-                    {selectedQualities.length} selected
-                  </span>
+                  <div className="flex items-center gap-2">
+                    {entitlements && (
+                      <Badge className="text-[9px] font-bold gap-1 bg-emerald-500/10 text-emerald-400 border-emerald-500/25">
+                        <RiFlashlightLine className="size-3" />
+                        {entitlements.labels} · max {entitlements.maxQuality}
+                      </Badge>
+                    )}
+                    <span className="text-[10px] font-mono text-muted-foreground/60">
+                      {selectedQualities.length} selected
+                    </span>
+                  </div>
                 </div>
+                <p className="text-[10px] text-muted-foreground leading-relaxed">
+                  Only selected rungs are transcoded and shown to viewers. Higher
+                  qualities require a plan upgrade.
+                </p>
                 <div className="grid grid-cols-1 xs:grid-cols-2 gap-2 sm:gap-2.5">
                   {QUALITIES.map((q) => {
+                    const allowed =
+                      !entitlements ||
+                      entitlements.allowedQualities.includes(q.key);
                     const active = selectedQualities.includes(q.key);
                     return (
                       <button
@@ -343,18 +471,26 @@ export default function NewStreamPage() {
                         type="button"
                         onClick={() => toggleQuality(q.key)}
                         aria-pressed={active}
+                        aria-disabled={!allowed}
                         className={`flex items-center justify-between gap-2 p-3 rounded-md border text-left transition-all duration-150 min-h-[52px] ${
-                          active
+                          !allowed
+                            ? "bg-[#101010] border-border/50 text-muted-foreground/50 cursor-not-allowed opacity-70"
+                            : active
                             ? "bg-emerald-500/8 border-emerald-500/35 text-foreground shadow-[inset_0_0_0_1px_rgba(62,207,142,0.08)]"
                             : "bg-[#141414] border-border text-muted-foreground hover:bg-[#1a1a1a] hover:border-white/10"
                         }`}
                       >
                         <div className="min-w-0">
-                          <div className="flex items-center gap-1.5">
+                          <div className="flex items-center gap-1.5 flex-wrap">
                             <span className="text-xs font-semibold">{q.label}</span>
-                            {q.rec && (
+                            {q.rec && allowed && (
                               <span className="text-[8px] font-bold uppercase tracking-wider text-emerald-400/80 bg-emerald-500/10 px-1 py-px rounded">
                                 rec
+                              </span>
+                            )}
+                            {!allowed && (
+                              <span className="text-[8px] font-bold uppercase tracking-wider text-amber-400/90 bg-amber-500/10 px-1 py-px rounded">
+                                upgrade
                               </span>
                             )}
                           </div>
@@ -364,12 +500,12 @@ export default function NewStreamPage() {
                         </div>
                         <span
                           className={`size-4 shrink-0 rounded-full border flex items-center justify-center transition-colors ${
-                            active
+                            active && allowed
                               ? "bg-emerald-500 border-emerald-500 text-black"
                               : "border-border"
                           }`}
                         >
-                          {active && <RiCheckLine className="size-2.5" />}
+                          {active && allowed && <RiCheckLine className="size-2.5" />}
                         </span>
                       </button>
                     );
@@ -449,7 +585,7 @@ export default function NewStreamPage() {
                       {
                         id: "now" as const,
                         title: "Go live immediately",
-                        desc: "Session stays READY until OBS connects",
+                        desc: "Waiting for OBS — stop OBS to end the show",
                         icon: RiBroadcastLine,
                       },
                       {
@@ -635,7 +771,7 @@ export default function NewStreamPage() {
                     <span className="font-mono text-foreground/90 break-all">
                       {createdStreamId}
                     </span>
-                    . Stopping OBS keeps the session READY so you can reconnect. Ending the broadcast
+                    . Stopping OBS or ending the broadcast both close the session
                     from Studio permanently revokes keys and creates a VOD.
                   </p>
                 </div>
@@ -682,7 +818,7 @@ export default function NewStreamPage() {
                 },
                 {
                   t: "Reconnect freely",
-                  d: "Stop OBS anytime — session stays READY until you End Broadcast.",
+                  d: "Stop OBS or hit End Broadcast — both end the session.",
                 },
               ].map((item, i) => (
                 <li key={item.t} className="flex gap-3">

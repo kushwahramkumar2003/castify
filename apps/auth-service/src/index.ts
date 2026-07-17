@@ -7,6 +7,9 @@ import routes from "./routes";
 
 const app = express();
 
+// Allow ~6MB JSON for base64 thumbnails (plus form fields)
+app.use(express.json({ limit: "6mb" }));
+
 // ---------------------------------------------------------------------------
 // CORS — must run before body parsers so OPTIONS preflight never hits routes.
 // Browser (web :3200) talks to auth-service (:3000) directly; api-gateway
@@ -56,7 +59,6 @@ app.use(
   })
 );
 
-app.use(express.json());
 app.use(cookieParser());
 
 app.use("/api/v1", routes);

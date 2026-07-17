@@ -2,6 +2,7 @@ import { Router } from "express";
 import auth from "./auth.routes";
 import user from "./user.routes";
 import browse from "./browse.routes";
+import library from "./library.routes";
 import {
   validateStreamKey,
   startStreamInternal,
@@ -16,6 +17,7 @@ const router = Router();
 router.use("/auth", auth);
 router.use("/user", user);
 router.use("/browse", browse);
+router.use("/library", library);
 
 // Internal routes for rtmp-ingest stream key validation and state updates
 router.use("/internal", requireInternalAuth);

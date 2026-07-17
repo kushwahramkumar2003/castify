@@ -2,6 +2,7 @@ import { Router } from "express";
 import { authMiddleware } from "../middleware/auth.middleware";
 import {
   getMe,
+  getEntitlements,
   updateMe,
   changePassword,
   getPublicProfile,
@@ -10,6 +11,7 @@ import {
   createStream,
   getStreamById,
   endStream,
+  uploadStreamThumbnailHandler,
 } from "../controller/user.controller";
 import {
   getStreamKeys,
@@ -26,10 +28,16 @@ import {
   getFollowers,
   followStatus,
 } from "../controller/follow.controller";
+import {
+  createInvite,
+  listInvites,
+  revokeInvite,
+} from "../controller/invite.controller";
 
 const router = Router();
 
 router.get("/me", authMiddleware, getMe);
+router.get("/entitlements", authMiddleware, getEntitlements);
 router.patch("/me", authMiddleware, updateMe);
 router.post("/change-password", authMiddleware, changePassword);
 
@@ -37,8 +45,16 @@ router.get("/streams", authMiddleware, getMyStreams);
 router.post("/streams", authMiddleware, createStream);
 router.get("/streams/:streamId", authMiddleware, getStreamById);
 router.post("/streams/:streamId/end", authMiddleware, endStream);
+router.post(
+  "/streams/:streamId/thumbnail",
+  authMiddleware,
+  uploadStreamThumbnailHandler
+);
 router.get("/streams/:streamId/keys", authMiddleware, getStreamKeysForStream);
 router.post("/streams/:streamId/keys/rotate", authMiddleware, rotateStreamKeys);
+router.get("/streams/:streamId/invites", authMiddleware, listInvites);
+router.post("/streams/:streamId/invites", authMiddleware, createInvite);
+router.delete("/streams/:streamId/invites/:inviteId", authMiddleware, revokeInvite);
 router.get("/vods", authMiddleware, getMyVods);
 
 router.get("/stream-keys", authMiddleware, getStreamKeys);

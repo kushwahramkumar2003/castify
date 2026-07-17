@@ -14,6 +14,7 @@ import {
   markViewCounted,
   hasViewCounted,
 } from "../utils/viewerPresence";
+import { canViewStream } from "../access/streamAccess.service";
 
 const HLS_PUBLIC_BASE =
   process.env.HLS_PUBLIC_BASE_URL ??
@@ -177,9 +178,13 @@ export const browseStreamById = asyncHandler(async (req: Request, res: Response)
     return castifyError(res, "Stream not found", STATUS_CODE.NOT_FOUND);
   }
 
-  // Private streams: only owner (or future invite system)
-  if (stream.isPrivate && stream.userId !== userId) {
-    return castifyError(res, "This stream is private", STATUS_CODE.FORBIDDEN);
+  const allowed = await canViewStream(userId, stream);
+  if (!allowed) {
+    return castifyError(
+      res,
+      "This stream is private. Redeem an invite code in Library → Join.",
+      STATUS_CODE.FORBIDDEN
+    );
   }
 
   const [activeKey, vod, following] = await Promise.all([
@@ -285,8 +290,13 @@ export const streamHeartbeat = asyncHandler(async (req: Request, res: Response) 
     return castifyError(res, "Stream not found", STATUS_CODE.NOT_FOUND);
   }
 
-  if (stream.isPrivate && stream.userId !== userId) {
-    return castifyError(res, "This stream is private", STATUS_CODE.FORBIDDEN);
+  const allowed = await canViewStream(userId, stream);
+  if (!allowed) {
+    return castifyError(
+      res,
+      "This stream is private. Redeem an invite code first.",
+      STATUS_CODE.FORBIDDEN
+    );
   }
 
   // Ended streams: no concurrent presence, still allow response for UI

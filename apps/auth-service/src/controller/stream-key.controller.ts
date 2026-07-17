@@ -261,6 +261,9 @@ export const validateStreamKey = asyncHandler(async (req: Request, res: Response
 
   const keyRecord = await prisma.streamKey.findUnique({
     where: { key },
+    include: {
+      user: { select: { username: true } },
+    },
   });
 
   if (!keyRecord || keyRecord.revokedAt) {
@@ -271,11 +274,27 @@ export const validateStreamKey = asyncHandler(async (req: Request, res: Response
     return castifyError(res, "Stream has ended — key is no longer valid", STATUS_CODE.UNAUTHORIZED);
   }
 
-  return castifyResponse(res, {
-    valid: true,
-    userId: keyRecord.userId,
-    streamId: keyRecord.streamId,
-  }, STATUS_MSG.OK);
+  const stream = await prisma.stream.findUnique({
+    where: { id: keyRecord.streamId },
+    select: { qualities: true },
+  });
+
+  const qualities =
+    stream?.qualities?.length
+      ? stream.qualities
+      : ["720p", "480p"];
+
+  return castifyResponse(
+    res,
+    {
+      valid: true,
+      userId: keyRecord.userId,
+      streamId: keyRecord.streamId,
+      username: keyRecord.user?.username,
+      qualities,
+    },
+    STATUS_MSG.OK
+  );
 });
 
 // ---------------------------------------------------------------------------

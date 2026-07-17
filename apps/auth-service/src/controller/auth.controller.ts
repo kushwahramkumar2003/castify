@@ -77,6 +77,14 @@ export const login = asyncHandler(async (req: Request, res: Response) => {
     );
   }
 
+  if (!user.passwordHash) {
+    return castifyError(
+      res,
+      "This account uses social sign-in. Continue with Google (or Dev OAuth).",
+      STATUS_CODE.UNAUTHORIZED
+    );
+  }
+
   const isMatch = await bcrypt.compare(parsed.data.password, user.passwordHash);
   if (!isMatch) {
     return castifyError(

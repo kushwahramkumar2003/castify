@@ -83,6 +83,7 @@ export async function finalizeStream(streamId: string) {
         title: stream.title || `Stream Capture - ${endedAt.toLocaleDateString()}`,
         playlistUrl,
         durationSecs,
+        thumbnailUrl: stream.thumbnailUrl,
         status: playlistUrl ? "READY" : "PENDING",
       },
     });

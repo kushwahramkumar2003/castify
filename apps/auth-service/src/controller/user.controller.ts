@@ -13,6 +13,15 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { updateProfilePayload, changePasswordPayload } from "../schema/auth.schema";
 import { finalizeStream } from "../utils/stream.utils";
 import { getCurrentViewers, getCurrentViewersMany } from "../utils/viewerPresence";
+import {
+  normalizePlan,
+  parseStreamQualities,
+  planPublicMeta,
+} from "../plans/qualityEntitlements";
+import {
+  isAllowedImageType,
+  uploadStreamThumbnail,
+} from "../storage/thumbnails";
 
 // ---------------------------------------------------------------------------
 // GET /api/v1/user/me
@@ -27,6 +36,7 @@ export const getMe = asyncHandler(async (req: Request, res: Response) => {
       email: true,
       avatarUrl: true,
       bio: true,
+      plan: true,
       createdAt: true,
       updatedAt: true,
     },
@@ -36,7 +46,34 @@ export const getMe = asyncHandler(async (req: Request, res: Response) => {
     return castifyError(res, "User not found", STATUS_CODE.NOT_FOUND);
   }
 
-  return castifyResponse(res, user, STATUS_MSG.OK);
+  const plan = normalizePlan(user.plan);
+  return castifyResponse(
+    res,
+    {
+      ...user,
+      plan,
+      entitlements: planPublicMeta(plan),
+    },
+    STATUS_MSG.OK
+  );
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/v1/user/entitlements — plan quality ladder for stream create UI
+// ---------------------------------------------------------------------------
+export const getEntitlements = asyncHandler(async (req: Request, res: Response) => {
+  const user = await prisma.user.findUnique({
+    where: { id: req.userId! },
+    select: { plan: true },
+  });
+  if (!user) {
+    return castifyError(res, "User not found", STATUS_CODE.NOT_FOUND);
+  }
+  return castifyResponse(
+    res,
+    planPublicMeta(normalizePlan(user.plan)),
+    STATUS_MSG.OK
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -94,6 +131,14 @@ export const changePassword = asyncHandler(async (req: Request, res: Response) =
   const user = await prisma.user.findUnique({ where: { id: req.userId } });
   if (!user) {
     return castifyError(res, "User not found", STATUS_CODE.NOT_FOUND);
+  }
+
+  if (!user.passwordHash) {
+    return castifyError(
+      res,
+      "This account has no password (OAuth only). Set one from a future flow or use social sign-in.",
+      STATUS_CODE.BAD_REQUEST
+    );
   }
 
   const isMatch = await bcrypt.compare(parsed.data.currentPassword, user.passwordHash);
@@ -193,10 +238,64 @@ export const getMyVods = asyncHandler(async (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 export const createStream = asyncHandler(async (req: Request, res: Response) => {
   const userId = req.userId!;
-  const { title, tags, qualities, isPrivate, scheduledAt } = req.body;
+  const {
+    title,
+    tags,
+    qualities,
+    isPrivate,
+    scheduledAt,
+    thumbnailBase64,
+    thumbnailContentType,
+  } = req.body;
+
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { plan: true },
+  });
+  if (!user) {
+    return castifyError(res, "User not found", STATUS_CODE.NOT_FOUND);
+  }
+
+  const plan = normalizePlan(user.plan);
+  const qualityResult = parseStreamQualities(qualities, plan);
+  if (!qualityResult.ok) {
+    return castifyError(
+      res,
+      qualityResult.message,
+      STATUS_CODE.UNPROCESSABLE,
+      qualityResult.errors
+    );
+  }
 
   // Generate a unique streamId format consistent with project layout
   const streamId = `stream-${randomUUID()}`;
+
+  let thumbnailUrl: string | null = null;
+  if (typeof thumbnailBase64 === "string" && thumbnailBase64.length > 0) {
+    try {
+      const raw = thumbnailBase64.replace(/^data:image\/[a-zA-Z0-9.+-]+;base64,/, "");
+      const buf = Buffer.from(raw, "base64");
+      const mime =
+        typeof thumbnailContentType === "string" && isAllowedImageType(thumbnailContentType)
+          ? thumbnailContentType
+          : thumbnailBase64.startsWith("data:image/png")
+          ? "image/png"
+          : thumbnailBase64.startsWith("data:image/webp")
+          ? "image/webp"
+          : "image/jpeg";
+      thumbnailUrl = await uploadStreamThumbnail({
+        streamId,
+        buffer: buf,
+        contentType: mime,
+      });
+    } catch (err: unknown) {
+      return castifyError(
+        res,
+        err instanceof Error ? err.message : "Thumbnail upload failed",
+        STATUS_CODE.UNPROCESSABLE
+      );
+    }
+  }
 
   // Create the stream record
   const stream = await prisma.stream.create({
@@ -205,9 +304,10 @@ export const createStream = asyncHandler(async (req: Request, res: Response) => 
       userId,
       title: title || "Untitled Broadcast",
       tags: Array.isArray(tags) ? tags : [],
-      qualities: Array.isArray(qualities) ? qualities : ["720p", "480p"],
+      qualities: qualityResult.qualities,
       isPrivate: !!isPrivate,
       scheduledAt: scheduledAt ? new Date(scheduledAt) : null,
+      thumbnailUrl,
       isLive: false,
     },
   });
@@ -230,6 +330,55 @@ export const createStream = asyncHandler(async (req: Request, res: Response) => 
     STATUS_CODE.CREATED
   );
 });
+
+// ---------------------------------------------------------------------------
+// POST /api/v1/user/streams/:streamId/thumbnail
+// Body: { thumbnailBase64, thumbnailContentType? }
+// ---------------------------------------------------------------------------
+export const uploadStreamThumbnailHandler = asyncHandler(
+  async (req: Request, res: Response) => {
+    const userId = req.userId!;
+    const streamId = req.params["streamId"] as string;
+    const { thumbnailBase64, thumbnailContentType } = req.body ?? {};
+
+    const stream = await prisma.stream.findFirst({
+      where: { id: streamId, userId },
+      select: { id: true },
+    });
+    if (!stream) {
+      return castifyError(res, "Stream not found", STATUS_CODE.NOT_FOUND);
+    }
+
+    if (typeof thumbnailBase64 !== "string" || !thumbnailBase64.length) {
+      return castifyError(res, "thumbnailBase64 is required", STATUS_CODE.BAD_REQUEST);
+    }
+
+    try {
+      const raw = thumbnailBase64.replace(/^data:image\/[a-zA-Z0-9.+-]+;base64,/, "");
+      const buf = Buffer.from(raw, "base64");
+      const mime =
+        typeof thumbnailContentType === "string" && isAllowedImageType(thumbnailContentType)
+          ? thumbnailContentType
+          : "image/jpeg";
+      const thumbnailUrl = await uploadStreamThumbnail({
+        streamId,
+        buffer: buf,
+        contentType: mime,
+      });
+      const updated = await prisma.stream.update({
+        where: { id: streamId },
+        data: { thumbnailUrl },
+      });
+      return castifyResponse(res, { thumbnailUrl: updated.thumbnailUrl }, "Thumbnail updated");
+    } catch (err: unknown) {
+      return castifyError(
+        res,
+        err instanceof Error ? err.message : "Thumbnail upload failed",
+        STATUS_CODE.UNPROCESSABLE
+      );
+    }
+  }
+);
 
 // ---------------------------------------------------------------------------
 // GET /api/v1/user/streams/:streamId

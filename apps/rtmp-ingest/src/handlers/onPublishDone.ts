@@ -35,16 +35,17 @@ export async function onPublishDoneHandler(req: Request, res: Response) {
   activeStreams.delete(streamKey);
   authService.evictStreamKey(streamKey);
 
-  // Mark offline only — session stays open so OBS can reconnect with the same key
+  // Fully end the session (same as creator "End Broadcast" in Studio):
+  // revoke keys, set endedAt, create VOD pointer, stop transcoder via Kafka.
   try {
-    const offlineUrl = `${config.AUTH_SERVICE_URL}/api/v1/internal/streams/${streamId}/offline`;
-    await fetch(offlineUrl, {
+    const endUrl = `${config.AUTH_SERVICE_URL}/api/v1/internal/streams/${streamId}/end`;
+    await fetch(endUrl, {
       method: "POST",
       headers: { "X-Internal-Secret": config.INTERNAL_SECRET },
     });
-    logger.info({ streamId }, "Notified auth-service of stream offline");
+    logger.info({ streamId }, "Notified auth-service of stream end (OBS stopped)");
   } catch (err) {
-    logger.error({ err, streamId }, "Failed to call auth-service streamOffline endpoint");
+    logger.error({ err, streamId }, "Failed to call auth-service endStream endpoint");
   }
 
   await kafkaService.publishStreamEnded({
@@ -57,7 +58,7 @@ export async function onPublishDoneHandler(req: Request, res: Response) {
 
   logger.info(
     { streamId, userId, durationSeconds },
-    "✅ Publisher disconnected — stream marked offline, keys remain valid"
+    "✅ Publisher disconnected — stream ended (keys revoked)"
   );
 
   return res.status(200).send("ok");

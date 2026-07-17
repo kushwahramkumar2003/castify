@@ -50,9 +50,22 @@ export class StreamWorker {
   private segmentsUploaded = 0;
   /** Qualities still waiting for a reconnect discontinuity marker on first seg */
   private pendingDiscontinuity = new Set<string>();
-  private readonly profiles = resolveProfiles(config.FFMPEG_QUALITIES);
+  private readonly profiles;
 
   constructor(private readonly event: StreamStartedEvent) {
+    // Prefer per-stream ladder from creator settings; fall back to operator config.
+    // Always intersect with FFMPEG_QUALITIES so ops can cap the platform ladder.
+    const platform = new Set(
+      config.FFMPEG_QUALITIES.split(",")
+        .map((q) => q.trim())
+        .filter(Boolean)
+    );
+    const requested =
+      event.qualities && event.qualities.length > 0
+        ? event.qualities
+        : ([...platform] as QualityLabel[]);
+    const filtered = requested.filter((q) => platform.has(q)).join(",");
+    this.profiles = resolveProfiles(filtered || config.FFMPEG_QUALITIES);
     this.qualities = this.profiles.map((p) => p.label);
     // A reconnect starts a new worker for the same stream key. Give every
     // worker its own directory so delayed cleanup from the prior connection

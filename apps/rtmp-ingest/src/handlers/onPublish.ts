@@ -75,6 +75,7 @@ export async function onPublishHandler(req: Request, res: Response) {
     startedAt: new Date().toISOString(),
     clientIp: clientIp?.toString(),
     nginxClientId: nginxClientId?.toString(),
+    qualities: validation.qualities,
   });
 
   logger.info(

@@ -62,14 +62,21 @@ async function validateWithAuthService(streamKey: string): Promise<StreamKeyVali
     // { success: true, data: { valid, userId, streamId, username } }
     const body = await resp.json() as {
       success: boolean;
-      data: { valid: boolean; userId: string; streamId: string; username: string };
+      data: {
+        valid: boolean;
+        userId: string;
+        streamId: string;
+        username?: string;
+        qualities?: string[];
+      };
     };
     if (body.success && body.data?.valid) {
       return {
-        valid:    true,
-        userId:   body.data.userId,
+        valid: true,
+        userId: body.data.userId,
         streamId: body.data.streamId,
         username: body.data.username,
+        qualities: body.data.qualities as StreamKeyValidation["qualities"],
       };
     }
     return { valid: false, error: "Stream key not recognized by auth-service" };

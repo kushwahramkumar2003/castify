@@ -74,13 +74,27 @@ export const QUALITY_PROFILES: Record<QualityLabel, QualityProfile> = {
   },
 };
 
-// Build the ordered list of active profiles from the config string.
-// config.FFMPEG_QUALITIES = "720p,480p,360p" → [720p profile, 480p profile, 360p profile]
+// Build the ordered list of active profiles from a comma list or per-stream event.
+// e.g. "1080p,720p,480p" → [1080p, 720p, 480p] profiles only
+// Unknown labels are dropped. Empty input falls back to 720p,480p.
 export function resolveProfiles(qualitiesStr: string): QualityProfile[] {
-  const labels = qualitiesStr.split(",").map((q) => q.trim()) as QualityLabel[];
-  return labels
+  const labels = qualitiesStr
+    .split(",")
+    .map((q) => q.trim())
+    .filter(Boolean) as QualityLabel[];
+  const resolved = labels
     .filter((l) => QUALITY_PROFILES[l] !== undefined)
     .map((l) => QUALITY_PROFILES[l]!);
+  if (resolved.length === 0) {
+    return [QUALITY_PROFILES["720p"]!, QUALITY_PROFILES["480p"]!];
+  }
+  // Deduplicate while preserving order
+  const seen = new Set<string>();
+  return resolved.filter((p) => {
+    if (seen.has(p.label)) return false;
+    seen.add(p.label);
+    return true;
+  });
 }
 
 // Build the HLS master playlist (ABR) from the active profiles.

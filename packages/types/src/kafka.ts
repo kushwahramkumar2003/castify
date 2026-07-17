@@ -45,6 +45,8 @@ export interface StreamKeyValidation {
   userId?: string;
   streamId?: string;
   username?: string;
+  /** Quality ladder selected at stream creation (transcoder must honor this) */
+  qualities?: QualityLabel[];
   error?: string;
 }
 
@@ -55,6 +57,8 @@ export interface StreamStartedEvent {
   startedAt: string;
   clientIp?: string;
   nginxClientId?: string;
+  /** Per-stream quality ladder from creator settings + plan */
+  qualities?: QualityLabel[];
 }
 
 export interface StreamEndedEvent {

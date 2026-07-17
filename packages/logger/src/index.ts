@@ -1,3 +1,4 @@
+import { createRequire } from "node:module";
 import pino from "pino";
 
 export interface LoggerOptions {
@@ -8,15 +9,28 @@ export interface LoggerOptions {
 
 export type Logger = pino.Logger;
 
+const require = createRequire(import.meta.url);
+
+/** Resolve pino-pretty from this package so monorepo apps don't need a local copy. */
+function resolvePrettyTarget(): string | null {
+  try {
+    return require.resolve("pino-pretty");
+  } catch {
+    return null;
+  }
+}
+
 export function createLogger(options: LoggerOptions): Logger {
   const { serviceName, level = "info", env = "development" } = options;
+  const prettyTarget =
+    env === "development" || env === "test" ? resolvePrettyTarget() : null;
 
   return pino({
     level,
-    ...(env === "development"
+    ...(prettyTarget
       ? {
           transport: {
-            target: "pino-pretty",
+            target: prettyTarget,
             options: {
               colorize: true,
               translateTime: "SYS:HH:MM:ss",

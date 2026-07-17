@@ -53,17 +53,31 @@ enum NotificationType {
   SYSTEM
 }
 
+enum StreamInviteKind {
+  CODE
+  LINK
+}
+
+/// Creator billing tier — gates max ingest quality ladder
+enum PlanTier {
+  FREE
+  PRO
+  ENTERPRISE
+}
+
 model User {
-  id           String    @id @default(uuid()) @db.Uuid
-  fullName     String?   @db.VarChar(100)
-  username     String    @unique @db.VarChar(30)
-  email        String?   @unique @db.VarChar(255)
-  passwordHash String    @db.VarChar(60)          // bcrypt hash (60 chars)
-  displayName  String?   @db.VarChar(50)
-  avatarUrl    String?   @db.VarChar(500)
-  bio          String?   @db.VarChar(300)
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  id              String    @id @default(uuid()) @db.Uuid
+  fullName        String?   @db.VarChar(100)
+  username        String    @unique @db.VarChar(30)
+  email           String?   @unique @db.VarChar(255)
+  passwordHash    String?   @db.VarChar(60)          // null = OAuth-only account
+  emailVerifiedAt DateTime?
+  plan            PlanTier  @default(FREE)
+  displayName     String?   @db.VarChar(50)
+  avatarUrl       String?   @db.VarChar(500)
+  bio             String?   @db.VarChar(300)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
   // Relations
   streamKeys              StreamKey[]
@@ -78,11 +92,81 @@ model User {
   timeoutsIssued          ChatTimeout[]            @relation("CreatedBy")
   clipsRequested          Clip[]
   vods                    Vod[]
+  oauthAccounts           OAuthAccount[]
+  streamAccess            StreamAccess[]
+  invitesCreated          StreamInvite[]           @relation("InviteCreator")
 
   @@index([email])
   @@index([username])
   @@index([createdAt])
   @@map("users")
+}
+
+/// Linked identity from an external IdP (Google, etc.)
+model OAuthAccount {
+  id                String    @id @default(uuid()) @db.Uuid
+  userId            String    @db.Uuid
+  provider          String    @db.VarChar(32)   // "google" | "dev"
+  providerAccountId String    @db.VarChar(255)
+  email             String?   @db.VarChar(255)
+  accessToken       String?   @db.Text
+  refreshToken      String?   @db.Text
+  expiresAt         DateTime?
+  rawProfile        Json?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+  @@index([email])
+  @@map("oauth_accounts")
+}
+
+/// Invite code or unlisted link for private stream access
+model StreamInvite {
+  id          String           @id @default(uuid()) @db.Uuid
+  streamId    String           @db.VarChar(50)
+  createdById String           @db.Uuid
+  kind        StreamInviteKind @default(CODE)
+  /// SHA-256 hex of the plaintext code/token (never store plaintext)
+  codeHash    String           @unique @db.VarChar(64)
+  /// First chars of code for owner UI hint
+  codeHint    String?          @db.VarChar(8)
+  label       String?          @db.VarChar(80)
+  maxUses     Int?
+  useCount    Int              @default(0)
+  expiresAt   DateTime?
+  revokedAt   DateTime?
+  createdAt   DateTime         @default(now())
+
+  stream    Stream         @relation(fields: [streamId], references: [id], onDelete: Cascade)
+  createdBy User           @relation("InviteCreator", fields: [createdById], references: [id], onDelete: Cascade)
+  grants    StreamAccess[]
+
+  @@index([streamId])
+  @@index([createdById])
+  @@map("stream_invites")
+}
+
+/// Per-user grant to view a (usually private) stream / its VODs
+model StreamAccess {
+  id        String    @id @default(uuid()) @db.Uuid
+  streamId  String    @db.VarChar(50)
+  userId    String    @db.Uuid
+  inviteId  String?   @db.Uuid
+  grantedAt DateTime  @default(now())
+  revokedAt DateTime?
+
+  stream Stream        @relation(fields: [streamId], references: [id], onDelete: Cascade)
+  user   User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  invite StreamInvite? @relation(fields: [inviteId], references: [id], onDelete: SetNull)
+
+  @@unique([streamId, userId])
+  @@index([userId])
+  @@index([streamId])
+  @@map("stream_access")
 }
 
 model StreamKey {
@@ -144,6 +228,8 @@ model Stream {
   channelBans ChannelBan[]
   bannedWords BannedWord[]
   chatTimeouts ChatTimeout[]
+  invites      StreamInvite[]
+  accessGrants StreamAccess[]
 
   @@index([userId])
   @@index([categoryId])

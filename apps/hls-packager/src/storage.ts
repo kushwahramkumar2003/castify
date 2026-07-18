@@ -101,14 +101,19 @@ export async function uploadPlaylistFromDisk(
 ): Promise<void> {
   const incoming = await readFile(localPath, "utf-8");
   let content = incoming;
+  let keepFinalized = options?.finalize === true;
 
   if (options?.merge !== false) {
     const { mergeHlsPlaylists, filterPlaylistToExistingSegs } = await import(
       "./playlistMerge.ts"
     );
     const existing = await downloadPlaylistText(objectKey);
+    // Once a playlist was finalized for VOD, keep ENDLIST even if a late
+    // segment upload would otherwise re-open it as a live EVENT playlist.
+    const alreadyFinalized = !!existing?.includes("#EXT-X-ENDLIST");
+    keepFinalized = keepFinalized || alreadyFinalized;
     content = mergeHlsPlaylists(existing, incoming, {
-      finalize: options?.finalize === true,
+      finalize: keepFinalized,
       discontinuity: options?.discontinuity === true,
     });
 
@@ -125,9 +130,7 @@ export async function uploadPlaylistFromDisk(
       );
     }
   } else if (options?.finalize) {
-    if (!content.includes("#EXT-X-ENDLIST")) {
-      content = content.trimEnd() + "\n#EXT-X-ENDLIST\n";
-    }
+    // keepFinalized already true
   } else {
     content = content
       .split(/\r?\n/)
@@ -136,7 +139,7 @@ export async function uploadPlaylistFromDisk(
     if (!content.endsWith("\n")) content += "\n";
   }
 
-  if (options?.finalize && !content.includes("#EXT-X-ENDLIST")) {
+  if (keepFinalized && !content.includes("#EXT-X-ENDLIST")) {
     content = content.trimEnd() + "\n#EXT-X-ENDLIST\n";
   }
 

@@ -102,4 +102,73 @@ export async function downloadPlaylistForAppend(
   }
 }
 
+/**
+ * Permanent stream end — append #EXT-X-ENDLIST to each quality playlist so
+ * hls.js treats the recording as VOD (free seek) instead of a live EVENT stream.
+ * Without this, scrubbing to start/mid jumps back to the live edge (end).
+ */
+export async function finalizePlaylists(
+  streamKey: string,
+  qualities: string[],
+  bucket: string = config.MINIO_BUCKET
+): Promise<void> {
+  for (const quality of qualities) {
+    const objectKey = `live/${streamKey}/${quality}/index.m3u8`;
+    try {
+      const stream = await minioClient.getObject(bucket, objectKey);
+      const chunks: Buffer[] = [];
+      for await (const chunk of stream) {
+        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+      }
+      let content = Buffer.concat(chunks).toString("utf-8");
+      if (!content.trim()) continue;
+
+      // Mark as finished VOD (keep segments; do not strip history)
+      if (!content.includes("#EXT-X-ENDLIST")) {
+        content = content.trimEnd() + "\n#EXT-X-ENDLIST\n";
+      }
+      // Prefer VOD playlist type for players that key off it
+      if (content.includes("#EXT-X-PLAYLIST-TYPE:EVENT")) {
+        content = content.replace(
+          /#EXT-X-PLAYLIST-TYPE:EVENT/g,
+          "#EXT-X-PLAYLIST-TYPE:VOD"
+        );
+      } else if (!content.includes("#EXT-X-PLAYLIST-TYPE:")) {
+        content = content.replace(
+          /(#EXT-X-VERSION:\d+)/,
+          "$1\n#EXT-X-PLAYLIST-TYPE:VOD"
+        );
+      }
+
+      await minioClient.putObject(
+        bucket,
+        objectKey,
+        Buffer.from(content, "utf-8"),
+        content.length,
+        { "Content-Type": "application/vnd.apple.mpegurl" }
+      );
+      logger.info(
+        { objectKey, streamKey: `${streamKey.slice(0, 8)}…`, quality },
+        "Finalized HLS playlist with EXT-X-ENDLIST for VOD"
+      );
+    } catch (err: unknown) {
+      const code =
+        err && typeof err === "object" && "code" in err
+          ? String((err as { code: string }).code)
+          : "";
+      if (code === "NoSuchKey" || code === "NotFound") {
+        logger.warn(
+          { objectKey: `live/${streamKey}/${quality}/index.m3u8` },
+          "No playlist to finalize (quality never produced segments)"
+        );
+        continue;
+      }
+      logger.error(
+        { err, streamKey: `${streamKey.slice(0, 8)}…`, quality },
+        "Failed to finalize quality playlist"
+      );
+    }
+  }
+}
+
 export { minioClient };

@@ -42,6 +42,11 @@ interface StreamPlayerMonitorProps {
   isLive?: boolean;
   /** Bumps on each false→true live transition so HLS remounts */
   liveEpoch?: number;
+  /**
+   * split — video + telemetry side-by-side (default)
+   * stack — full-width video, compact metrics below (studio + chat)
+   */
+  layout?: "split" | "stack";
 }
 
 function getLiveStreamUrl(key: string) {
@@ -78,7 +83,9 @@ export function StreamPlayerMonitor({
   onRefresh,
   isLive = false,
   liveEpoch = 0,
+  layout = "split",
 }: StreamPlayerMonitorProps) {
+  const stacked = layout === "stack";
   const videoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<HlsInstance | null>(null);
 
@@ -197,31 +204,68 @@ export function StreamPlayerMonitor({
       hlsRef.current = null;
 
       if (Hls.isSupported()) {
-        // Storage/CDN proxy only — no custom request headers (avoids CORS preflight)
-        const hls = new Hls({
-          enableWorker: true,
-          lowLatencyMode: false, // more stable with EVENT multi-clip playlists
-          liveDurationInfinity: playAsLive,
-          liveSyncDurationCount: 3,
-          liveMaxLatencyDurationCount: 10,
-          maxLiveSyncPlaybackRate: 1.2,
-          maxBufferLength: 60,
-          maxMaxBufferLength: 120,
-          manifestLoadingMaxRetry: 4,
-          manifestLoadingRetryDelay: 1000,
-          levelLoadingMaxRetry: 4,
-          levelLoadingRetryDelay: 1000,
-          fragLoadingMaxRetry: 3,
-          fragLoadingRetryDelay: 500,
-        }) as unknown as HlsInstance;
+        const isVod = mode === "vod";
+        // Live: edge sync. VOD: free seek (no latency cap → no jump to end).
+        const hls = new Hls(
+          playAsLive
+            ? {
+                enableWorker: true,
+                lowLatencyMode: false,
+                liveDurationInfinity: true,
+                liveSyncDurationCount: 3,
+                liveMaxLatencyDurationCount: 10,
+                maxLiveSyncPlaybackRate: 1.2,
+                maxBufferLength: 60,
+                maxMaxBufferLength: 120,
+                manifestLoadingMaxRetry: 4,
+                manifestLoadingRetryDelay: 1000,
+                levelLoadingMaxRetry: 4,
+                levelLoadingRetryDelay: 1000,
+                fragLoadingMaxRetry: 3,
+                fragLoadingRetryDelay: 500,
+              }
+            : {
+                enableWorker: true,
+                lowLatencyMode: false,
+                liveDurationInfinity: false,
+                maxLiveSyncPlaybackRate: 1,
+                liveSyncDurationCount: 3,
+                liveMaxLatencyDurationCount: Number.POSITIVE_INFINITY,
+                maxBufferLength: 120,
+                maxMaxBufferLength: 600,
+                backBufferLength: 90,
+                startPosition: isVod ? 0 : -1,
+                manifestLoadingMaxRetry: 4,
+                manifestLoadingRetryDelay: 1000,
+                levelLoadingMaxRetry: 4,
+                levelLoadingRetryDelay: 1000,
+                fragLoadingMaxRetry: 3,
+                fragLoadingRetryDelay: 500,
+              }
+        ) as unknown as HlsInstance;
 
         hls.loadSource(sourceUrl);
         hls.attachMedia(video);
         hlsRef.current = hls;
 
+        // Recordings may lack EXT-X-ENDLIST (FFmpeg omit_endlist). Force VOD
+        // mode so scrubbing does not jump to the live edge.
+        if (isVod) {
+          hls.on(Hls.Events.LEVEL_LOADED, (...args: unknown[]) => {
+            const data = args[1] as
+              | { details?: { live?: boolean; type?: string } }
+              | undefined;
+            if (data?.details) {
+              data.details.live = false;
+              if (data.details.type === "EVENT") {
+                data.details.type = "VOD";
+              }
+            }
+          });
+        }
+
         hls.on(Hls.Events.MANIFEST_PARSED, onReady);
         hls.on(Hls.Events.FRAG_LOADED, () => {
-          // First successful fragment = really playing
           markReady();
         });
 
@@ -236,8 +280,9 @@ export function StreamPlayerMonitor({
             | undefined;
           if (!data) return;
 
-          // Missing last segment at live edge: step back and keep going
+          // Live edge only — never auto-seek VOD (breaks scrubbing)
           if (
+            playAsLive &&
             !data.fatal &&
             (data.details === "fragLoadError" ||
               data.details === "fragLoadTimeOut")
@@ -247,7 +292,6 @@ export function StreamPlayerMonitor({
             }
             return;
           }
-
           if (!data.fatal) return;
 
           if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
@@ -409,9 +453,89 @@ export function StreamPlayerMonitor({
   const showConnectingOverlay = isActiveLive && isConnecting;
   const showEndedOverlay = mode === "offline";
 
+  const metricRows =
+    mode === "live"
+      ? [
+          {
+            label: "Live edge lag",
+            value:
+              isActiveLive && !ingestDown && latency != null
+                ? `${latency}s`
+                : "—",
+            sub:
+              isActiveLive && !ingestDown
+                ? "Player vs playlist edge"
+                : isPausedSession
+                ? "Ingest stopped"
+                : "Awaiting input",
+            icon: RiFlashlightLine,
+            color:
+              isActiveLive && !ingestDown
+                ? "#3ecf8e"
+                : isPausedSession
+                ? "#e5b83b"
+                : "#828282",
+          },
+          {
+            label: "Download est.",
+            value:
+              isActiveLive && !ingestDown && bitrateKbps != null
+                ? bitrateKbps >= 1000
+                  ? `${(bitrateKbps / 1000).toFixed(2)} Mbps`
+                  : `${bitrateKbps} kbps`
+                : "—",
+            sub:
+              isActiveLive && !ingestDown
+                ? "hls.js bandwidth estimate"
+                : isPausedSession
+                ? "Ingest stopped"
+                : "Awaiting input",
+            icon: RiDashboardLine,
+            color:
+              isActiveLive && !ingestDown
+                ? "#1998d5"
+                : isPausedSession
+                ? "#e5b83b"
+                : "#828282",
+          },
+          {
+            label: "Buffer / dropped",
+            value:
+              isActiveLive && !ingestDown
+                ? `${bufferSize != null ? `${bufferSize}s` : "—"} · ${droppedFrames} drop`
+                : "—",
+            sub:
+              isActiveLive && !ingestDown
+                ? videoHeight
+                  ? `Decode ${videoHeight}p`
+                  : "From HTML video"
+                : isPausedSession
+                ? "Ingest stopped"
+                : "Awaiting input",
+            icon: RiSettings3Line,
+            color:
+              isActiveLive && !ingestDown
+                ? "#8a5cfa"
+                : isPausedSession
+                ? "#e5b83b"
+                : "#828282",
+          },
+        ]
+      : [];
+
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 sm:gap-5 min-w-0">
-      <div className="lg:col-span-2 flex flex-col justify-between supabase-panel p-3 sm:p-4 min-h-[300px] sm:min-h-[380px] relative overflow-hidden bg-[#0a0a0a]">
+    <div
+      className={
+        stacked
+          ? "flex flex-col gap-3 min-w-0"
+          : "grid grid-cols-1 lg:grid-cols-3 gap-3 sm:gap-5 min-w-0"
+      }
+    >
+      <div
+        className={`${
+          stacked ? "w-full" : "lg:col-span-2"
+        } flex flex-col supabase-panel p-3 sm:p-4 relative overflow-hidden bg-[#0a0a0a]`}
+      >
         <div className="flex items-center justify-between gap-2 pb-3 border-b border-border/40 mb-3 z-10">
           <div className="flex items-center gap-2 min-w-0">
             <span
@@ -428,7 +552,7 @@ export function StreamPlayerMonitor({
               ● {statusLabel}
             </span>
             {title && (
-              <span className="text-[10px] font-mono text-muted-foreground truncate hidden xs:inline">
+              <span className="text-[10px] font-mono text-muted-foreground truncate hidden sm:inline">
                 {title}
               </span>
             )}
@@ -465,13 +589,21 @@ export function StreamPlayerMonitor({
           </div>
         </div>
 
-        <div className="relative flex-1 rounded-md overflow-hidden bg-black flex items-center justify-center group select-none min-h-[180px] sm:min-h-[220px]">
+        <div
+          className={`relative rounded-md overflow-hidden bg-black flex items-center justify-center group select-none ${
+            stacked
+              ? "aspect-video w-full max-h-[min(420px,50vh)]"
+              : "flex-1 min-h-[180px] sm:min-h-[220px]"
+          }`}
+        >
           <video
             ref={videoRef}
             playsInline
             muted={isMuted}
             controls={mode === "vod" || isPausedSession}
-            className={`w-full h-full object-contain sm:object-cover max-h-[240px] sm:max-h-[300px] transition-opacity duration-300 ${
+            className={`w-full h-full object-contain transition-opacity duration-300 ${
+              stacked ? "max-h-full" : "sm:object-cover max-h-[240px] sm:max-h-[300px]"
+            } ${
               showPausedOverlay ||
               showFirstWaitOverlay ||
               showConnectingOverlay ||
@@ -607,182 +739,111 @@ export function StreamPlayerMonitor({
         </div>
       </div>
 
-      <div className="supabase-panel p-4 sm:p-5 flex flex-col justify-between min-w-0">
-        <div className="space-y-3 sm:space-y-4">
-          <div className="flex items-center gap-2 border-b border-border/40 pb-3">
-            <RiPulseLine className="size-4 text-emerald-400 shrink-0" />
-            <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground truncate">
-              {mode === "vod" ? "Recording Playback" : "Ingest status"}
-            </h3>
-          </div>
-
-          {mode === "live" && (
-            <div
-              className={`rounded-md border p-3 text-[11px] leading-relaxed ${
-                isActiveLive && !ingestDown
-                  ? "border-emerald-500/20 bg-emerald-500/5 text-emerald-400/90"
-                  : isPausedSession
-                  ? "border-amber-500/25 bg-amber-500/5 text-amber-400/90"
-                  : "border-border bg-muted/20 text-muted-foreground"
-              }`}
-            >
-              {isActiveLive && !ingestDown ? (
-                <p className="flex items-start gap-2">
-                  <RiSignalTowerLine className="size-3.5 shrink-0 mt-0.5" />
-                  <span>
-                    <strong className="font-semibold">Live.</strong> OBS is publishing.
-                    New segments are appending to this session.
-                  </span>
-                </p>
-              ) : isPausedSession ? (
-                <p className="flex items-start gap-2">
-                  <RiWifiOffLine className="size-3.5 shrink-0 mt-0.5" />
-                  <span>
-                    <strong className="font-semibold">Not live.</strong> Start OBS with this
-                    session key, or end the broadcast if you are finished.
-                  </span>
-                </p>
-              ) : (
-                <p className="flex items-start gap-2">
-                  <RiSignalTowerLine className="size-3.5 shrink-0 mt-0.5" />
-                  <span>Waiting for the first OBS connection…</span>
-                </p>
-              )}
+      {mode === "live" && (
+        <div
+          className={`supabase-panel min-w-0 ${
+            stacked ? "p-3" : "p-4 sm:p-5 flex flex-col justify-between"
+          }`}
+        >
+          {!stacked && (
+            <div className="flex items-center gap-2 border-b border-border/40 pb-3 mb-3">
+              <RiPulseLine className="size-4 text-emerald-400 shrink-0" />
+              <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground truncate">
+                Ingest status
+              </h3>
             </div>
           )}
 
-          <p className="text-xs text-muted-foreground leading-relaxed">
-            {mode === "vod"
-              ? "Archived HLS segments from this broadcast session."
-              : "Player metrics from your studio preview (HLS buffer & estimate). OBS input bitrate/FPS are not reported to Castify yet."}
-          </p>
+          <div
+            className={`rounded-md border p-2.5 sm:p-3 text-[11px] leading-relaxed ${
+              isActiveLive && !ingestDown
+                ? "border-emerald-500/20 bg-emerald-500/5 text-emerald-400/90"
+                : isPausedSession
+                ? "border-amber-500/25 bg-amber-500/5 text-amber-400/90"
+                : "border-border bg-muted/20 text-muted-foreground"
+            } ${stacked ? "mb-3" : "mb-3"}`}
+          >
+            {isActiveLive && !ingestDown ? (
+              <p className="flex items-start gap-2">
+                <RiSignalTowerLine className="size-3.5 shrink-0 mt-0.5" />
+                <span>
+                  <strong className="font-semibold">Live.</strong> OBS is publishing.
+                </span>
+              </p>
+            ) : isPausedSession ? (
+              <p className="flex items-start gap-2">
+                <RiWifiOffLine className="size-3.5 shrink-0 mt-0.5" />
+                <span>
+                  <strong className="font-semibold">Not live.</strong> Start OBS or end
+                  the broadcast.
+                </span>
+              </p>
+            ) : (
+              <p className="flex items-start gap-2">
+                <RiSignalTowerLine className="size-3.5 shrink-0 mt-0.5" />
+                <span>Waiting for OBS…</span>
+              </p>
+            )}
+          </div>
 
-          {mode === "live" && (
-            <div className="space-y-2 pt-0.5">
-              {[
-                {
-                  label: "Live edge lag",
-                  value:
-                    isActiveLive && !ingestDown && latency != null
-                      ? `${latency}s`
-                      : "—",
-                  sub:
-                    isActiveLive && !ingestDown
-                      ? "Player vs playlist edge"
-                      : isPausedSession
-                      ? "Ingest stopped"
-                      : "Awaiting input",
-                  icon: RiFlashlightLine,
-                  color:
-                    isActiveLive && !ingestDown
-                      ? "#3ecf8e"
-                      : isPausedSession
-                      ? "#e5b83b"
-                      : "#828282",
-                },
-                {
-                  label: "Download est.",
-                  value:
-                    isActiveLive && !ingestDown && bitrateKbps != null
-                      ? bitrateKbps >= 1000
-                        ? `${(bitrateKbps / 1000).toFixed(2)} Mbps`
-                        : `${bitrateKbps} kbps`
-                      : "—",
-                  sub:
-                    isActiveLive && !ingestDown
-                      ? "hls.js bandwidth estimate"
-                      : isPausedSession
-                      ? "Ingest stopped"
-                      : "Awaiting input",
-                  icon: RiDashboardLine,
-                  color:
-                    isActiveLive && !ingestDown
-                      ? "#1998d5"
-                      : isPausedSession
-                      ? "#e5b83b"
-                      : "#828282",
-                },
-                {
-                  label: "Buffer / dropped",
-                  value:
-                    isActiveLive && !ingestDown
-                      ? `${bufferSize != null ? `${bufferSize}s` : "—"} · ${droppedFrames} drop`
-                      : "—",
-                  sub:
-                    isActiveLive && !ingestDown
-                      ? videoHeight
-                        ? `Decode ${videoHeight}p`
-                        : "From HTML video"
-                      : isPausedSession
-                      ? "Ingest stopped"
-                      : "Awaiting input",
-                  icon: RiSettings3Line,
-                  color:
-                    isActiveLive && !ingestDown
-                      ? "#8a5cfa"
-                      : isPausedSession
-                      ? "#e5b83b"
-                      : "#828282",
-                },
-              ].map((stat) => (
-                <div
-                  key={stat.label}
-                  className="flex items-center justify-between gap-2 p-2.5 rounded-md bg-[#1b1b1b]/30 border border-border"
-                >
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    <div
-                      className="flex size-7 items-center justify-center rounded-md shrink-0 border"
-                      style={{
-                        background: `${stat.color}12`,
-                        borderColor: `${stat.color}20`,
-                      }}
-                    >
-                      <stat.icon className="size-3.5" style={{ color: stat.color }} />
-                    </div>
-                    <div className="min-w-0">
-                      <p className="text-[10px] text-muted-foreground leading-none truncate">
-                        {stat.label}
-                      </p>
+          <div
+            className={
+              stacked
+                ? "grid grid-cols-1 sm:grid-cols-3 gap-2"
+                : "space-y-2"
+            }
+          >
+            {metricRows.map((stat) => (
+              <div
+                key={stat.label}
+                className="flex items-center justify-between gap-2 p-2.5 rounded-md bg-[#1b1b1b]/30 border border-border min-w-0"
+              >
+                <div className="flex items-center gap-2 min-w-0">
+                  <div
+                    className="flex size-7 items-center justify-center rounded-md shrink-0 border"
+                    style={{
+                      background: `${stat.color}12`,
+                      borderColor: `${stat.color}20`,
+                    }}
+                  >
+                    <stat.icon className="size-3.5" style={{ color: stat.color }} />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-[10px] text-muted-foreground leading-none truncate">
+                      {stat.label}
+                    </p>
+                    {!stacked && (
                       <p className="text-[9px] text-muted-foreground/60 leading-none mt-1 font-mono truncate">
                         {stat.sub}
                       </p>
-                    </div>
+                    )}
                   </div>
-                  <span
-                    className="text-xs font-extrabold stat-value shrink-0"
-                    style={{ color: stat.color }}
-                  >
-                    {stat.value}
-                  </span>
                 </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {mode === "live" && (
-          <div className="pt-4 border-t border-border/40 mt-4 grid grid-cols-2 gap-2 sm:gap-3 text-center">
-            <div className="bg-[#1b1b1b]/10 rounded-md border border-border p-2">
-              <span className="text-sm font-bold stat-value text-foreground/80">
-                {isActiveLive && !ingestDown ? droppedFrames : "—"}
-              </span>
-              <span className="block text-[8px] uppercase tracking-wider text-muted-foreground font-semibold mt-0.5">
-                Dropped Frames
-              </span>
-            </div>
-            <div className="bg-[#1b1b1b]/10 rounded-md border border-border p-2">
-              <span className="text-sm font-bold stat-value text-emerald-400">
-                {isActiveLive && !ingestDown && videoHeight > 0
-                  ? `${videoHeight}p`
-                  : "—"}
-              </span>
-              <span className="block text-[8px] uppercase tracking-wider text-muted-foreground font-semibold mt-0.5">
-                Decode height
-              </span>
-            </div>
+                <span
+                  className="text-xs font-extrabold stat-value shrink-0"
+                  style={{ color: stat.color }}
+                >
+                  {stat.value}
+                </span>
+              </div>
+            ))}
           </div>
-        )}
-      </div>
+        </div>
+      )}
+
+      {mode === "vod" && !stacked && (
+        <div className="supabase-panel p-4 sm:p-5 min-w-0">
+          <div className="flex items-center gap-2 border-b border-border/40 pb-3 mb-3">
+            <RiPulseLine className="size-4 text-emerald-400 shrink-0" />
+            <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+              Recording playback
+            </h3>
+          </div>
+          <p className="text-xs text-muted-foreground leading-relaxed">
+            Archived HLS segments from this broadcast session.
+          </p>
+        </div>
+      )}
     </div>
   );
 }

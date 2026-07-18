@@ -11,6 +11,7 @@ import { publishSegmentReady } from "../kafka/producer.ts";
 import {
   getNextSegmentStartNumber,
   downloadPlaylistForAppend,
+  finalizePlaylists,
 } from "../storage/minio.ts";
 
 // =============================================================================
@@ -283,7 +284,8 @@ export class StreamWorker {
     // 0. Stop heartbeat
     if (this.heartbeat) { clearInterval(this.heartbeat); this.heartbeat = null; }
 
-    // 1. Stop FFmpeg (SIGINT → EXT-X-ENDLIST → exit)
+    // 1. Stop FFmpeg (SIGINT). omit_endlist means FFmpeg will NOT write
+    //    EXT-X-ENDLIST — we finalize MinIO playlists ourselves for VOD.
     if (this.ffmpegProcess?.isRunning()) {
       await this.ffmpegProcess.stop();
     }
@@ -291,7 +293,31 @@ export class StreamWorker {
     // 2. Stop the file watcher
     await this.segmentWatcher?.stop();
 
-    // 3. Remove temp dir after a short delay — hls-packager may still be
+    // 3. Permanent end: mark media playlists as VOD so seekers work.
+    //    Wait briefly so hls-packager can upload the last segment/playlist
+    //    before we append ENDLIST on top of MinIO state. A second pass covers
+    //    late Kafka uploads that might race the first finalize.
+    if (graceful) {
+      const key = this.event.streamKey;
+      const qs = [...this.qualities];
+      const runFinalize = async (label: string) => {
+        try {
+          await finalizePlaylists(key, qs);
+        } catch (err) {
+          logger.error(
+            { err, streamKey: `${key.slice(0, 8)}…`, pass: label },
+            "Failed to finalize HLS playlists for VOD"
+          );
+        }
+      };
+      await new Promise((r) => setTimeout(r, 2_500));
+      await runFinalize("immediate");
+      setTimeout(() => {
+        void runFinalize("delayed");
+      }, 8_000);
+    }
+
+    // 4. Remove temp dir after a short delay — hls-packager may still be
     //    processing Kafka events for the last segments. 5 seconds gives
     //    the Kafka consumer time to pick up and process inflight events.
     //    After the delay, remaining files are hls-packager's responsibility.

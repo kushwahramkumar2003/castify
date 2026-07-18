@@ -131,26 +131,81 @@ export function HlsViewerPlayer({
       const src = withCb(activeUrl, `${reloadToken}-${selectedQuality}`);
 
       if (Hls.isSupported()) {
-        const hls = new Hls({
-          enableWorker: true,
-          lowLatencyMode: false,
-          liveDurationInfinity: isLive,
-          liveSyncDurationCount: 3,
-          liveMaxLatencyDurationCount: 12,
-          maxBufferLength: 45,
-          fragLoadingMaxRetry: 4,
-          manifestLoadingMaxRetry: 5,
-          levelLoadingMaxRetry: 5,
-        }) as unknown as HlsInstance;
+        // Live: chase the edge. VOD/recording: free seek — do NOT apply live
+        // latency caps or EVENT playlists will yank the playhead back to the end.
+        const hls = new Hls(
+          isLive
+            ? {
+                enableWorker: true,
+                lowLatencyMode: false,
+                liveDurationInfinity: true,
+                liveSyncDurationCount: 3,
+                liveMaxLatencyDurationCount: 12,
+                maxLiveSyncPlaybackRate: 1.2,
+                maxBufferLength: 45,
+                fragLoadingMaxRetry: 4,
+                manifestLoadingMaxRetry: 5,
+                levelLoadingMaxRetry: 5,
+              }
+            : {
+                enableWorker: true,
+                lowLatencyMode: false,
+                liveDurationInfinity: false,
+                maxLiveSyncPlaybackRate: 1,
+                // No max-latency jump-to-edge (critical for recordings)
+                liveSyncDurationCount: 3,
+                liveMaxLatencyDurationCount: Number.POSITIVE_INFINITY,
+                maxBufferLength: 120,
+                maxMaxBufferLength: 600,
+                backBufferLength: 90,
+                startPosition: 0,
+                fragLoadingMaxRetry: 4,
+                manifestLoadingMaxRetry: 5,
+                levelLoadingMaxRetry: 5,
+              }
+        ) as unknown as HlsInstance & {
+          on: (event: string, cb: (...args: unknown[]) => void) => void;
+        };
 
         hls.loadSource(src);
         hls.attachMedia(video);
         hlsRef.current = hls;
 
+        // Archives may still be EVENT playlists without EXT-X-ENDLIST (FFmpeg
+        // omit_endlist). Force non-live so hls.js does not chase the edge.
+        if (!isLive) {
+          hls.on(Hls.Events.LEVEL_LOADED, (...args: unknown[]) => {
+            const data = args[1] as
+              | { details?: { live?: boolean; type?: string } }
+              | undefined;
+            if (data?.details) {
+              data.details.live = false;
+              if (data.details.type === "EVENT") {
+                data.details.type = "VOD";
+              }
+            }
+          });
+          hls.on(Hls.Events.MANIFEST_LOADED, (...args: unknown[]) => {
+            const data = args[1] as
+              | { levels?: { details?: { live?: boolean } }[] }
+              | undefined;
+            for (const level of data?.levels ?? []) {
+              if (level.details) level.details.live = false;
+            }
+          });
+        }
+
         hls.on(Hls.Events.MANIFEST_PARSED, () => {
           markReady();
           if (isLive && typeof hls.liveSyncPosition === "number") {
             video.currentTime = Math.max(0, hls.liveSyncPosition - 0.5);
+          } else if (!isLive) {
+            // Always start VOD from the beginning once
+            if (video.currentTime > 0.5) {
+              /* keep position on quality switch if already scrubbing */
+            } else {
+              video.currentTime = 0;
+            }
           }
           video
             .play()
@@ -165,7 +220,9 @@ export function HlsViewerPlayer({
             | { fatal?: boolean; type?: string; details?: string }
             | undefined;
           if (!data?.fatal) {
+            // Only nudge playhead on live frag misses — not VOD (breaks seeking)
             if (
+              isLive &&
               data?.details === "fragLoadError" &&
               video.currentTime > 2
             ) {
@@ -205,6 +262,7 @@ export function HlsViewerPlayer({
           "loadedmetadata",
           () => {
             markReady();
+            if (!isLive) video.currentTime = 0;
             video.play().catch(() => {});
           },
           { once: true }
@@ -280,7 +338,16 @@ export function HlsViewerPlayer({
     if (!v) return;
     const onTime = () => {
       setCurrentTime(v.currentTime);
-      setDuration(Number.isFinite(v.duration) ? v.duration : 0);
+      // Prefer seekable end when duration is Infinity (open EVENT playlist)
+      let d = Number.isFinite(v.duration) ? v.duration : 0;
+      try {
+        if ((!d || !Number.isFinite(d)) && v.seekable.length > 0) {
+          d = v.seekable.end(v.seekable.length - 1);
+        }
+      } catch {
+        /* ignore */
+      }
+      setDuration(Number.isFinite(d) ? d : 0);
     };
     v.addEventListener("timeupdate", onTime);
     v.addEventListener("durationchange", onTime);
@@ -402,12 +469,16 @@ export function HlsViewerPlayer({
             <input
               type="range"
               min={0}
-              max={duration}
-              step={0.1}
-              value={Math.min(currentTime, duration)}
+              max={duration || 0}
+              step={0.25}
+              value={Math.min(currentTime, duration || 0)}
               onChange={(e) => {
                 const t = Number(e.target.value);
-                if (videoRef.current) videoRef.current.currentTime = t;
+                const v = videoRef.current;
+                if (!v || !Number.isFinite(t)) return;
+                // Native seek only — do NOT call hls.startLoad(t); that restarts
+                // the loader and can snap EVENT/live-marked playlists to the end.
+                v.currentTime = t;
                 setCurrentTime(t);
               }}
               className="w-full h-1 accent-emerald-400 cursor-pointer"

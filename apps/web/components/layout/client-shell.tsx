@@ -4,6 +4,7 @@ import { usePathname } from "next/navigation";
 import { AuthProvider } from "@/lib/auth";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { ConfirmDialogProvider } from "@/components/ui/confirm-dialog";
 import { Navbar } from "@/components/layout/navbar";
 
 /**
@@ -15,8 +16,10 @@ export function ClientShell({ children }: { children: React.ReactNode }) {
   return (
     <TooltipProvider>
       <AuthProvider>
-        <ShellInner>{children}</ShellInner>
-        <Toaster richColors position="top-right" />
+        <ConfirmDialogProvider>
+          <ShellInner>{children}</ShellInner>
+          <Toaster richColors position="top-right" />
+        </ConfirmDialogProvider>
       </AuthProvider>
     </TooltipProvider>
   );

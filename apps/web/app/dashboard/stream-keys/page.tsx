@@ -5,6 +5,7 @@ import { api, type StreamKey } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import { PageHeader } from "@/components/dashboard/page-header";
 import {
   RiKeyLine,
@@ -120,6 +121,7 @@ function KeyRow({ streamKey, onRevoke }: { streamKey: StreamKey; onRevoke: (id: 
 }
 
 export default function StreamKeysPage() {
+  const confirm = useConfirm();
   const [keys, setKeys] = useState<StreamKey[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
@@ -150,7 +152,15 @@ export default function StreamKeysPage() {
   }
 
   async function handleRevoke(keyId: string) {
-    if (!confirm("Revoke this key? Active broadcasts using it will disconnect.")) return;
+    const ok = await confirm({
+      title: "Revoke this stream key?",
+      description:
+        "Active broadcasts using this key will disconnect. You will need a new key to go live again.",
+      confirmLabel: "Revoke key",
+      cancelLabel: "Cancel",
+      variant: "destructive",
+    });
+    if (!ok) return;
     try {
       await api.revokeStreamKey({ keyId });
       setKeys((p) => p.filter((k) => k.id !== keyId));
@@ -161,7 +171,15 @@ export default function StreamKeysPage() {
   }
 
   async function handleRotateAll() {
-    if (!confirm("Rotate ALL keys? This drops all active streaming inputs.")) return;
+    const ok = await confirm({
+      title: "Rotate all stream keys?",
+      description:
+        "This drops all active streaming inputs. Every previous key is invalidated and replaced.",
+      confirmLabel: "Rotate all",
+      cancelLabel: "Cancel",
+      variant: "destructive",
+    });
+    if (!ok) return;
     try {
       const res = await api.regenerateStreamKey();
       setKeys([res.data]);

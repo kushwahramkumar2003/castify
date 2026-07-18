@@ -80,6 +80,15 @@ class ApiClient {
     return this.request<null>("/auth/logout", { method: "POST" });
   }
 
+  /** Short-lived JWT for chat WS/REST (cross-origin to chat-service). */
+  getChatToken() {
+    return this.request<{
+      token: string;
+      expiresIn: number;
+      tokenType: string;
+    }>("/auth/chat-token");
+  }
+
   getOAuthProviders() {
     return this.request<{
       providers: { id: string; label: string; enabled: boolean }[];

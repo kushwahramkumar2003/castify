@@ -62,8 +62,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   );
 
   const logout = useCallback(() => {
-    // Fire-and-forget: ask the server to clear its cookie.
     api.logout().catch(() => {});
+    void import("@/lib/chat-client").then((m) => m.clearChatAccessToken());
     setState({ user: null, isLoading: false });
     toast.success("Logged out successfully");
   }, []);

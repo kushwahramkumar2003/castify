@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { toast } from "sonner";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import {
   RiUserAddLine,
   RiUserUnfollowLine,
@@ -19,18 +20,23 @@ import {
   RiLoader4Line,
   RiShareLine,
 } from "react-icons/ri";
+import { LiveChatPanel } from "@/components/chat/live-chat-panel";
+import { ChatModerationPanel } from "@/components/chat/chat-moderation-panel";
+import { chatApi } from "@/lib/chat-client";
 
 function WatchInner() {
   const params = useParams();
   const streamId = params.streamId as string;
   const router = useRouter();
   const { user } = useAuth();
+  const confirm = useConfirm();
 
   const [data, setData] = useState<BrowseStreamDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [followBusy, setFollowBusy] = useState(false);
   const [reloadToken, setReloadToken] = useState(0);
+  const [modRefreshKey, setModRefreshKey] = useState(0);
   const prevLiveRef = useState<{ v: boolean }>({ v: false })[0];
 
   const load = useCallback(
@@ -242,14 +248,58 @@ function WatchInner() {
         </Button>
       </div>
 
-      <HlsViewerPlayer
-        masterUrl={playback.masterUrl}
-        qualityUrls={playback.qualityUrls}
-        qualities={playback.qualities?.length ? playback.qualities : stream.qualities}
-        isLive={stream.isLive}
-        title={stream.title ?? undefined}
-        reloadToken={reloadToken}
-      />
+      <div className="grid grid-cols-1 lg:grid-cols-5 gap-3 sm:gap-4">
+        <div className="lg:col-span-3 min-w-0 space-y-3">
+          <HlsViewerPlayer
+            masterUrl={playback.masterUrl}
+            qualityUrls={playback.qualityUrls}
+            qualities={
+              playback.qualities?.length ? playback.qualities : stream.qualities
+            }
+            isLive={stream.isLive}
+            title={stream.title ?? undefined}
+            reloadToken={reloadToken}
+          />
+        </div>
+        <div className="lg:col-span-2 min-w-0 space-y-3">
+          <LiveChatPanel
+            streamId={stream.id}
+            streamEnded={!!stream.endedAt}
+            showModActions={isOwner && !stream.endedAt}
+            onBanUser={async (userId, username) => {
+              const ok = await confirm({
+                title: `Ban @${username}?`,
+                description:
+                  "They will not be able to send chat messages on this stream until you unban them.",
+                confirmLabel: "Ban user",
+                cancelLabel: "Cancel",
+                variant: "destructive",
+              });
+              if (!ok) return;
+              try {
+                await chatApi.banUser(stream.id, {
+                  userId,
+                  reason: "Banned by host",
+                });
+                toast.success(`Banned @${username} — unban in moderation`);
+                setModRefreshKey((k) => k + 1);
+              } catch (err: unknown) {
+                toast.error(
+                  err && typeof err === "object" && "message" in err
+                    ? String((err as { message: string }).message)
+                    : "Ban failed"
+                );
+              }
+            }}
+          />
+          {isOwner && !stream.endedAt && (
+            <ChatModerationPanel
+              streamId={stream.id}
+              refreshKey={modRefreshKey}
+            />
+          )}
+        </div>
+      </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3 sm:gap-4">
         <div className="md:col-span-2 supabase-panel p-4 sm:p-5 space-y-3">
@@ -293,10 +343,10 @@ function WatchInner() {
 
           <p className="text-xs text-muted-foreground leading-relaxed">
             {stream.isLive
-              ? "Live from Castify storage (HLS). Use the quality menu on the player for ladders set by the creator."
+              ? "You're watching live. Chat with the community on the right — keep it kind."
               : stream.endedAt
-              ? "This broadcast has ended. Playback uses the archived HLS path when available."
-              : "Session is open — waiting for the creator to go live in OBS."}
+              ? "This broadcast has ended. You can still open recordings from Library when available."
+              : "The creator hasn't gone live yet. Hang tight or check back soon."}
           </p>
 
           <div className="flex flex-wrap gap-3 pt-1 text-[11px] font-mono text-muted-foreground">

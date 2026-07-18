@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { api, Stream, StreamKey, Vod } from "@/lib/api";
 import { toast } from "sonner";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 
 const StreamPlayerMonitor = dynamic(
   () =>
@@ -26,6 +27,9 @@ const StreamPlayerMonitor = dynamic(
 );
 import { PageHeader } from "@/components/dashboard/page-header";
 import { StreamInvitePanel } from "@/components/dashboard/stream-invite-panel";
+import { LiveChatPanel } from "@/components/chat/live-chat-panel";
+import { ChatModerationPanel } from "@/components/chat/chat-moderation-panel";
+import { chatApi } from "@/lib/chat-client";
 import {
   RiArrowLeftLine,
   RiTimeLine,
@@ -233,6 +237,7 @@ function StreamKeyPanel({
 export default function StreamStudioPage() {
   const params = useParams();
   const streamId = params.streamId as string;
+  const confirm = useConfirm();
 
   const [stream, setStream] = useState<Stream | null>(null);
   const [streamKeys, setStreamKeys] = useState<StreamKey[]>([]);
@@ -312,7 +317,15 @@ export default function StreamStudioPage() {
     : "live";
 
   const handleEndStream = async () => {
-    if (!confirm("End this broadcast? All ingest keys will be revoked immediately.")) return;
+    const ok = await confirm({
+      title: "End this broadcast?",
+      description:
+        "All ingest keys will be revoked immediately. Viewers will see the stream as ended and a recording will be created if segments exist.",
+      confirmLabel: "End broadcast",
+      cancelLabel: "Keep live",
+      variant: "destructive",
+    });
+    if (!ok) return;
     setEnding(true);
     try {
       const res = await api.endStream(streamId);
@@ -334,10 +347,15 @@ export default function StreamStudioPage() {
   };
 
   const handleRotateKey = async () => {
-    if (
-      !confirm("Rotate stream key? The current key will stop working on next OBS reconnect.")
-    )
-      return;
+    const ok = await confirm({
+      title: "Rotate stream key?",
+      description:
+        "The current key will stop working on the next OBS reconnect. Update OBS with the new key after rotating.",
+      confirmLabel: "Rotate key",
+      cancelLabel: "Cancel",
+      variant: "destructive",
+    });
+    if (!ok) return;
     setRotating(true);
     try {
       const res = await api.rotateStreamKey(streamId);
@@ -379,8 +397,37 @@ export default function StreamStudioPage() {
     );
   }
 
+  const [modRefreshKey, setModRefreshKey] = useState(0);
+
+  const banFromChat = async (userId: string, username: string) => {
+    if (!stream) return;
+    const ok = await confirm({
+      title: `Ban @${username}?`,
+      description:
+        "They will not be able to send chat messages on this stream until you unban them.",
+      confirmLabel: "Ban user",
+      cancelLabel: "Cancel",
+      variant: "destructive",
+    });
+    if (!ok) return;
+    try {
+      await chatApi.banUser(stream.id, {
+        userId,
+        reason: "Banned by host",
+      });
+      toast.success(`Banned @${username} — unban anytime below`);
+      setModRefreshKey((k) => k + 1);
+    } catch (err: unknown) {
+      toast.error(
+        err && typeof err === "object" && "message" in err
+          ? String((err as { message: string }).message)
+          : "Ban failed"
+      );
+    }
+  };
+
   return (
-    <div className="space-y-5 sm:space-y-6 animate-fade-up min-w-0">
+    <div className="space-y-4 sm:space-y-5 animate-fade-up min-w-0">
       <PageHeader
         leading={
           <Button variant="ghost" size="icon" asChild aria-label="Back to streams">
@@ -435,18 +482,6 @@ export default function StreamStudioPage() {
         }
       />
 
-      {!loading && stream && (
-        <StreamPlayerMonitor
-          mode={playerMode}
-          streamKey={!isEnded ? activeKey?.key : null}
-          vodUrl={vod?.playlistUrl ?? null}
-          title={stream.title ?? undefined}
-          onRefresh={() => fetchDetail(true)}
-          isLive={!!stream.isLive}
-          liveEpoch={liveEpoch}
-        />
-      )}
-
       {loading && (
         <div className="supabase-panel p-12 sm:p-16 flex items-center justify-center min-h-[200px]">
           <div className="flex flex-col items-center gap-3">
@@ -458,7 +493,7 @@ export default function StreamStudioPage() {
 
       {!loading && stream && (
         <>
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-2.5">
             {[
               {
                 label: "Watching now",
@@ -468,16 +503,19 @@ export default function StreamStudioPage() {
                     : (stream.currentViewers ?? currentViewers ?? 0)
                 ),
                 icon: RiTeamLine,
-                color: (stream.currentViewers ?? currentViewers) > 0 ? "#3ecf8e" : "#828282",
+                color:
+                  (stream.currentViewers ?? currentViewers) > 0
+                    ? "#3ecf8e"
+                    : "#828282",
               },
               {
-                label: "Peak Viewers",
+                label: "Peak viewers",
                 value: String(stream.peakViewers ?? 0),
                 icon: RiTeamLine,
                 color: "#1998d5",
               },
               {
-                label: "Total Views",
+                label: "Total views",
                 value: String(stream.totalViews ?? 0),
                 icon: RiEyeLine,
                 color: "#8a5cfa",
@@ -491,8 +529,8 @@ export default function StreamStudioPage() {
                 color: stream.isLive ? "#fa5c5c" : "#828282",
               },
             ].map((stat) => (
-              <div key={stat.label} className="supabase-panel p-3 sm:p-4 min-w-0">
-                <div className="flex items-center gap-1.5 sm:gap-2 mb-1.5 sm:mb-2">
+              <div key={stat.label} className="supabase-panel p-2.5 sm:p-3 min-w-0">
+                <div className="flex items-center gap-1.5 mb-1">
                   <stat.icon className="size-3.5 shrink-0" style={{ color: stat.color }} />
                   <span className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground truncate">
                     {stat.label}
@@ -509,44 +547,15 @@ export default function StreamStudioPage() {
             ))}
           </div>
 
-          {stream.tags.length > 0 && (
-            <div className="flex flex-wrap gap-1.5">
-              {stream.tags.map((tag) => (
-                <Badge
-                  key={tag}
-                  variant="secondary"
-                  className="rounded text-[9px] font-mono px-2 py-0.5 bg-emerald-500/8 text-emerald-400/90 border border-emerald-500/15"
-                >
-                  {tag}
-                </Badge>
-              ))}
-            </div>
-          )}
-
-          {!isEnded && (
-            <StreamKeyPanel
-              streamKey={activeKey}
-              canRotate
-              onRotate={handleRotateKey}
-              rotating={rotating}
-            />
-          )}
-
-          {!isEnded && streamId && (
-            <StreamInvitePanel
-              streamId={streamId}
-              isPrivate={!!stream.isPrivate}
-            />
-          )}
-
           {isEnded && (
             <div className="callout-danger">
               <RiErrorWarningLine className="size-5 shrink-0 text-red-400 mt-0.5" />
               <div className="text-xs leading-relaxed min-w-0">
-                <span className="font-bold block mb-0.5 text-red-400">Broadcast ended</span>
+                <span className="font-bold block mb-0.5 text-red-400">
+                  Broadcast ended
+                </span>
                 <span className="text-muted-foreground">
-                  Ingest keys for this session were revoked. OBS cannot push to this stream
-                  anymore. Create a new broadcast to go live again.
+                  Ingest keys were revoked. Create a new broadcast to go live again.
                 </span>
                 <div className="mt-3">
                   <Button size="sm" asChild className="btn-primary-flat h-8 text-xs">
@@ -561,13 +570,76 @@ export default function StreamStudioPage() {
             <div className="callout-info">
               <RiCheckboxCircleLine className="size-5 shrink-0 text-emerald-400 mt-0.5" />
               <div className="text-xs leading-relaxed min-w-0">
-                <span className="font-bold block mb-0.5 text-emerald-400">Session ready</span>
+                <span className="font-bold block mb-0.5 text-emerald-400">
+                  Session ready
+                </span>
                 <span className="text-muted-foreground">
-                  Point OBS at the server URL and stream key above. Stopping OBS or using
-                  End Broadcast both end this session and revoke the ingest key.
+                  Connect OBS with the stream key below. Stopping OBS or ending the
+                  broadcast closes this session.
                 </span>
               </div>
             </div>
+          )}
+
+          {/* Preview stage + live chat */}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 sm:gap-4 items-start">
+            <div className="lg:col-span-8 min-w-0 space-y-3">
+              <StreamPlayerMonitor
+                layout="stack"
+                mode={playerMode}
+                streamKey={!isEnded ? activeKey?.key : null}
+                vodUrl={vod?.playlistUrl ?? null}
+                title={stream.title ?? undefined}
+                onRefresh={() => fetchDetail(true)}
+                isLive={!!stream.isLive}
+                liveEpoch={liveEpoch}
+              />
+              {stream.tags.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {stream.tags.map((tag) => (
+                    <Badge
+                      key={tag}
+                      variant="secondary"
+                      className="rounded text-[9px] font-mono px-2 py-0.5 bg-emerald-500/8 text-emerald-400/90 border border-emerald-500/15"
+                    >
+                      {tag}
+                    </Badge>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="lg:col-span-4 min-w-0 lg:sticky lg:top-3 self-start">
+              <LiveChatPanel
+                fill
+                streamId={stream.id}
+                streamEnded={isEnded}
+                showModActions={!isEnded}
+                onBanUser={banFromChat}
+              />
+            </div>
+          </div>
+
+          {!isEnded && (
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-3 sm:gap-4 items-start">
+              <StreamKeyPanel
+                streamKey={activeKey}
+                canRotate
+                onRotate={handleRotateKey}
+                rotating={rotating}
+              />
+              <StreamInvitePanel
+                streamId={streamId}
+                isPrivate={!!stream.isPrivate}
+              />
+            </div>
+          )}
+
+          {!isEnded && (
+            <ChatModerationPanel
+              streamId={stream.id}
+              refreshKey={modRefreshKey}
+            />
           )}
         </>
       )}

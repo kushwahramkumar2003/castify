@@ -200,6 +200,18 @@ class ApiClient {
     return this.request<Vod[]>("/user/vods");
   }
 
+  deleteVod(vodId: string) {
+    return this.request<{
+      id: string;
+      deleted: boolean;
+      storageRemoved: number;
+      storagePrefixes: string[];
+      storageErrors: string[];
+    }>(`/user/vods/${vodId}`, {
+      method: "DELETE",
+    });
+  }
+
   // ── Browse / Watch (auth required) ────────────────────────────────────
 
   browseStreams(params?: { q?: string; live?: boolean; following?: boolean }) {

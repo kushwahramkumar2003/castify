@@ -8,6 +8,7 @@ import {
   getPublicProfile,
   getMyStreams,
   getMyVods,
+  deleteMyVod,
   createStream,
   getStreamById,
   endStream,
@@ -56,6 +57,7 @@ router.get("/streams/:streamId/invites", authMiddleware, listInvites);
 router.post("/streams/:streamId/invites", authMiddleware, createInvite);
 router.delete("/streams/:streamId/invites/:inviteId", authMiddleware, revokeInvite);
 router.get("/vods", authMiddleware, getMyVods);
+router.delete("/vods/:vodId", authMiddleware, deleteMyVod);
 
 router.get("/stream-keys", authMiddleware, getStreamKeys);
 router.post("/stream-keys", authMiddleware, createStreamKey);

@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { api, Vod } from "@/lib/api";
 import { PageHeader } from "@/components/dashboard/page-header";
+import { useConfirm } from "@/components/ui/confirm-dialog";
+import { toast } from "sonner";
 import {
   RiMovieLine,
   RiDownloadLine,
@@ -16,6 +18,7 @@ import {
   RiDeleteBinLine,
   RiCloseLine,
   RiVideoLine,
+  RiLoader4Line,
 } from "react-icons/ri";
 
 const GREEN = "#3ecf8e";
@@ -53,9 +56,11 @@ const getVodPlayUrl = (playlistUrl: string | null) => {
 };
 
 export default function RecordingsPage() {
+  const confirm = useConfirm();
   const [search, setSearch] = useState("");
   const [vods, setVods] = useState<Vod[]>([]);
   const [loading, setLoading] = useState(true);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const [activeVodUrl, setActiveVodUrl] = useState<string | null>(null);
   const [activeVodTitle, setActiveVodTitle] = useState("");
@@ -115,9 +120,49 @@ export default function RecordingsPage() {
     (r.title || "Untitled Capture").toLowerCase().includes(search.toLowerCase())
   );
 
-  const deleteRecording = (id: string) => {
-    if (!confirm("Delete this broadcast recording capture permanently?")) return;
-    setVods((prev) => prev.filter((item) => item.id !== id));
+  const deleteRecording = async (id: string) => {
+    const ok = await confirm({
+      title: "Delete this recording?",
+      description:
+        "This permanently removes the broadcast capture from your library and deletes stored HLS segments when possible. This cannot be undone.",
+      confirmLabel: "Delete recording",
+      cancelLabel: "Cancel",
+      variant: "destructive",
+    });
+    if (!ok) return;
+
+    setDeletingId(id);
+    try {
+      const res = await api.deleteVod(id);
+      setVods((prev) => prev.filter((item) => item.id !== id));
+      // Close player if we deleted the open recording
+      if (activeVodUrl) {
+        const removed = vods.find((v) => v.id === id);
+        if (removed && getVodPlayUrl(removed.playlistUrl) === activeVodUrl) {
+          setActiveVodUrl(null);
+          setActiveVodTitle("");
+        }
+      }
+      const n = res.data?.storageRemoved ?? 0;
+      const storageErrs = res.data?.storageErrors ?? [];
+      if (storageErrs.length > 0 && n === 0) {
+        toast.warning(
+          "Recording removed from library, but storage cleanup reported issues"
+        );
+      } else if (n > 0) {
+        toast.success(`Recording deleted (${n} files removed from storage)`);
+      } else {
+        toast.success("Recording deleted");
+      }
+    } catch (err: unknown) {
+      toast.error(
+        err && typeof err === "object" && "message" in err
+          ? String((err as { message: string }).message)
+          : "Failed to delete recording"
+      );
+    } finally {
+      setDeletingId(null);
+    }
   };
 
   const totalDurationSecs = vods.reduce((acc, curr) => acc + (curr.durationSecs || 0), 0);
@@ -255,10 +300,15 @@ export default function RecordingsPage() {
                       size="icon"
                       className="size-9 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10"
                       onClick={() => deleteRecording(r.id)}
+                      disabled={deletingId === r.id}
                       title="Delete capture"
                       aria-label="Delete recording"
                     >
-                      <RiDeleteBinLine className="size-4" />
+                      {deletingId === r.id ? (
+                        <RiLoader4Line className="size-4 animate-spin" />
+                      ) : (
+                        <RiDeleteBinLine className="size-4" />
+                      )}
                     </Button>
                   </div>
                 </div>

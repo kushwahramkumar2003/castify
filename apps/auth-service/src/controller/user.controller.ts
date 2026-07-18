@@ -22,6 +22,7 @@ import {
   isAllowedImageType,
   uploadStreamThumbnail,
 } from "../storage/thumbnails";
+import { deleteRecordingStorage } from "../storage/hlsCleanup";
 
 // ---------------------------------------------------------------------------
 // GET /api/v1/user/me
@@ -231,6 +232,67 @@ export const getMyVods = asyncHandler(async (req: Request, res: Response) => {
   });
 
   return castifyResponse(res, vods, STATUS_MSG.OK);
+});
+
+// ---------------------------------------------------------------------------
+// DELETE /api/v1/user/vods/:vodId
+// ---------------------------------------------------------------------------
+export const deleteMyVod = asyncHandler(async (req: Request, res: Response) => {
+  const userId = req.userId!;
+  const vodId = String(req.params.vodId ?? "").trim();
+
+  if (!vodId) {
+    return castifyError(res, "VOD id is required", STATUS_CODE.BAD_REQUEST);
+  }
+
+  const vod = await prisma.vod.findFirst({
+    where: { id: vodId, userId },
+  });
+
+  if (!vod) {
+    return castifyError(res, "Recording not found", STATUS_CODE.NOT_FOUND);
+  }
+
+  // Resolve ingest keys so we can wipe live/<streamKey>/… even if playlistUrl is odd
+  const streamKeys = await prisma.streamKey.findMany({
+    where: { streamId: vod.streamId },
+    select: { key: true },
+  });
+
+  // Delete from MinIO/S3 BEFORE DB row — so a storage failure is still reported
+  // and we do not orphan "deleted" library rows without cleaning objects.
+  const storage = await deleteRecordingStorage({
+    playlistUrl: vod.playlistUrl,
+    streamKeys: streamKeys.map((k) => k.key),
+    streamId: vod.streamId,
+    thumbnailUrl: vod.thumbnailUrl,
+  });
+
+  if (storage.errors.length > 0 && storage.removed === 0 && storage.prefixes.length > 0) {
+    // Hard fail when we expected storage work but could not reach the bucket
+    return castifyError(
+      res,
+      `Could not delete recording files from storage: ${storage.errors[0]}`,
+      STATUS_CODE.BAD_GATEWAY
+    );
+  }
+
+  // Clips cascade via Prisma relation onDelete
+  await prisma.vod.delete({ where: { id: vod.id } });
+
+  return castifyResponse(
+    res,
+    {
+      id: vod.id,
+      deleted: true,
+      storageRemoved: storage.removed,
+      storagePrefixes: storage.prefixes,
+      storageErrors: storage.errors,
+    },
+    storage.removed > 0
+      ? `Recording deleted (${storage.removed} objects removed from storage)`
+      : "Recording deleted"
+  );
 });
 
 // ---------------------------------------------------------------------------

@@ -14,7 +14,12 @@ import {
   sanitizeNextPath,
 } from "../oauth/state";
 import { upsertOAuthUser } from "../oauth/upsertUser";
-import { signToken, setAuthCookie, clearAuthCookie } from "../utils/auth.utils";
+import {
+  signToken,
+  signChatAccessToken,
+  setAuthCookie,
+  clearAuthCookie,
+} from "../utils/auth.utils";
 import type { OAuthProviderId } from "../oauth/types";
 
 export const listProviders = asyncHandler(async (_req: Request, res: Response) => {
@@ -24,6 +29,25 @@ export const listProviders = asyncHandler(async (_req: Request, res: Response) =
 export const logout = asyncHandler(async (_req: Request, res: Response) => {
   clearAuthCookie(res);
   return castifyResponse(res, null, "Logged out");
+});
+
+export const issueChatToken = asyncHandler(async (req: Request, res: Response) => {
+  const userId = req.userId;
+  const username = req.username;
+  if (!userId || !username) {
+    return castifyError(res, "Unauthorized", STATUS_CODE.UNAUTHORIZED);
+  }
+
+  const token = signChatAccessToken({ sub: userId, username });
+  return castifyResponse(
+    res,
+    {
+      token,
+      expiresIn: 2 * 60 * 60,
+      tokenType: "Bearer",
+    },
+    STATUS_MSG.OK
+  );
 });
 
 export const startOAuth = asyncHandler(async (req: Request, res: Response) => {

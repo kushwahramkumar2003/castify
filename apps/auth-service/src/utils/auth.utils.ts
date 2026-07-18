@@ -16,6 +16,15 @@ export function signToken(payload: TokenPayload): string {
   return jwt.sign(payload, config.JWT_SECRET, options);
 }
 
+/** Short-lived token for cross-origin chat WS/REST (same JWT secret). */
+export function signChatAccessToken(payload: TokenPayload): string {
+  return jwt.sign(
+    { ...payload, purpose: "chat" },
+    config.JWT_SECRET,
+    { expiresIn: "2h", algorithm: "HS256" }
+  );
+}
+
 export function setAuthCookie(res: Response, token: string): void {
   res.cookie("castify_token", token, {
     httpOnly: true,

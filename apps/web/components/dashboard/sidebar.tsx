@@ -31,15 +31,25 @@ import {
   RiLogoutBoxRLine,
   RiTvLine,
 } from "react-icons/ri";
+import { PlanBadge } from "@/components/billing/plan-badge";
 
 const SIDEBAR_BG = "#141414";
 const BORDER = "#242424";
 
-export const navSections = [
+type NavItem = {
+  title: string;
+  href: string;
+  icon: typeof RiGridLine;
+  badge: string | null;
+  /** When true, badge is filled from user plan (PRO / ENT) */
+  planBadge?: boolean;
+};
+
+export const navSections: { label: string; items: NavItem[] }[] = [
   {
     label: "Studio",
     items: [
-      { title: "Overview", href: "/dashboard", icon: RiGridLine, badge: null as string | null },
+      { title: "Overview", href: "/dashboard", icon: RiGridLine, badge: null },
       { title: "Analytics", href: "/dashboard/analytics", icon: RiBarChartLine, badge: null },
       { title: "Live Streams", href: "/dashboard/streams", icon: RiVideoLine, badge: "LIVE" },
       { title: "Recordings", href: "/dashboard/recordings", icon: RiMovieLine, badge: null },
@@ -52,7 +62,13 @@ export const navSections = [
       { title: "Stream Keys", href: "/dashboard/stream-keys", icon: RiKeyLine, badge: null },
       { title: "Profile", href: "/dashboard/profile", icon: RiUserLine, badge: null },
       { title: "Settings", href: "/dashboard/settings", icon: RiSettings3Line, badge: null },
-      { title: "Billing", href: "/dashboard/billing", icon: RiShieldKeyholeLine, badge: null },
+      {
+        title: "Billing",
+        href: "/dashboard/billing",
+        icon: RiShieldKeyholeLine,
+        badge: null,
+        planBadge: true,
+      },
     ],
   },
 ];
@@ -136,6 +152,15 @@ export function DashboardSidebar({ collapsed, onToggle: _onToggle, mobile = fals
             <ul className={cn("space-y-0.5", !mobile && collapsed ? "px-1.5" : "px-2")}>
               {section.items.map((item) => {
                 const active = isActive(item.href);
+                const planLabel =
+                  item.planBadge && user?.plan && user.plan !== "FREE"
+                    ? user.plan === "ENTERPRISE"
+                      ? "ENT"
+                      : "PRO"
+                    : item.planBadge && (!user?.plan || user.plan === "FREE")
+                      ? "UP"
+                      : null;
+                const badgeText = planLabel ?? item.badge;
                 const NavItem = (
                   <Link
                     href={item.href}
@@ -156,16 +181,20 @@ export function DashboardSidebar({ collapsed, onToggle: _onToggle, mobile = fals
                     {showLabels && (
                       <>
                         <span className="flex-1 truncate">{item.title}</span>
-                        {item.badge && (
+                        {badgeText && (
                           <span
                             className={cn(
-                              "flex items-center rounded px-1.5 py-0.5 text-[8px] font-bold",
-                              item.badge === "LIVE"
-                                ? "bg-red-500/10 text-red-400 border border-red-500/20"
-                                : "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
+                              "flex items-center rounded px-1.5 py-0.5 text-[8px] font-bold border",
+                              badgeText === "LIVE"
+                                ? "bg-red-500/10 text-red-400 border-red-500/20"
+                                : badgeText === "PRO" || badgeText === "ENT"
+                                  ? "bg-sky-500/10 text-sky-400 border-sky-500/25"
+                                  : badgeText === "UP"
+                                    ? "bg-amber-500/10 text-amber-400 border-amber-500/25"
+                                    : "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
                             )}
                           >
-                            {item.badge}
+                            {badgeText}
                           </span>
                         )}
                       </>
@@ -209,9 +238,12 @@ export function DashboardSidebar({ collapsed, onToggle: _onToggle, mobile = fals
               </Avatar>
               {showLabels && (
                 <div className="flex-1 min-w-0">
-                  <p className="text-[11px] font-medium truncate leading-none text-foreground/90">
-                    {user?.username}
-                  </p>
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <p className="text-[11px] font-medium truncate leading-none text-foreground/90">
+                      {user?.username}
+                    </p>
+                    <PlanBadge plan={user?.plan} size="xs" href={null} />
+                  </div>
                   <p className="text-[9px] text-muted-foreground truncate mt-1 leading-none">
                     {user?.email}
                   </p>
@@ -221,7 +253,7 @@ export function DashboardSidebar({ collapsed, onToggle: _onToggle, mobile = fals
           <DropdownMenuContent
             side="top"
             align={!mobile && collapsed ? "end" : "start"}
-            className="w-48 mb-2 border border-border"
+            className="w-52 mb-2 border border-border"
             sideOffset={8}
           >
             <DropdownMenuLabel className="font-normal">
@@ -232,14 +264,28 @@ export function DashboardSidebar({ collapsed, onToggle: _onToggle, mobile = fals
                   </AvatarFallback>
                 </Avatar>
                 <div className="min-w-0">
-                  <p className="text-xs font-medium truncate">
-                    {user?.fullName ?? user?.username}
-                  </p>
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <p className="text-xs font-medium truncate">
+                      {user?.fullName ?? user?.username}
+                    </p>
+                    <PlanBadge plan={user?.plan} size="xs" href={null} />
+                  </div>
                   <p className="text-[10px] text-muted-foreground truncate">{user?.email}</p>
                 </div>
               </div>
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
+            <DropdownMenuItem
+              onClick={() => {
+                router.push("/dashboard/billing");
+                onNavigate?.();
+              }}
+            >
+              <RiShieldKeyholeLine className="size-3.5 mr-2 text-muted-foreground" />{" "}
+              {user?.plan === "PRO" || user?.plan === "ENTERPRISE"
+                ? "Manage plan"
+                : "Upgrade to Pro"}
+            </DropdownMenuItem>
             <DropdownMenuItem
               onClick={() => {
                 router.push("/dashboard/profile");
@@ -268,8 +314,7 @@ export function DashboardSidebar({ collapsed, onToggle: _onToggle, mobile = fals
             <DropdownMenuItem
               className="text-destructive focus:text-destructive focus:bg-destructive/10"
               onClick={() => {
-                logout();
-                router.push("/");
+                void logout();
               }}
             >
               <RiLogoutBoxRLine className="size-3.5 mr-2" /> Log out

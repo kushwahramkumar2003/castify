@@ -27,8 +27,11 @@ export const listProviders = asyncHandler(async (_req: Request, res: Response) =
 });
 
 export const logout = asyncHandler(async (_req: Request, res: Response) => {
+  // Always clear cookie even if already anonymous — FE awaits this.
   clearAuthCookie(res);
-  return castifyResponse(res, null, "Logged out");
+  // Prevent caches from storing a logged-in response
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+  return castifyResponse(res, { loggedOut: true }, "Logged out");
 });
 
 export const issueChatToken = asyncHandler(async (req: Request, res: Response) => {

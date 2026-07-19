@@ -1,5 +1,5 @@
 import jwt, { type SignOptions } from "jsonwebtoken";
-import type { Response } from "express";
+import type { CookieOptions, Response } from "express";
 import { config } from "../config";
 
 export interface TokenPayload {
@@ -25,25 +25,58 @@ export function signChatAccessToken(payload: TokenPayload): string {
   );
 }
 
-export function setAuthCookie(res: Response, token: string): void {
-  res.cookie("castify_token", token, {
+function cookieBaseOptions(): CookieOptions {
+  const opts: CookieOptions = {
     httpOnly: true,
-    secure: config.COOKIE_SECURE,
+    // false on local http:// — true only when COOKIE_SECURE=true
+    secure: config.COOKIE_SECURE === true,
+    // lax works for localhost:3200 → localhost:3000 (same-site, different port)
     sameSite: "lax",
     path: "/",
-    domain: config.COOKIE_DOMAIN,
+  };
+  // Only set Domain when non-empty (empty string breaks set/clear)
+  const domain = config.COOKIE_DOMAIN?.trim();
+  if (domain) {
+    opts.domain = domain;
+  }
+  return opts;
+}
+
+export function setAuthCookie(res: Response, token: string): void {
+  res.cookie("castify_token", token, {
+    ...cookieBaseOptions(),
     maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
   });
 }
 
+/**
+ * Clear session cookie. Must match path/domain/secure/sameSite used when set,
+ * otherwise the browser keeps the cookie and "logout" appears broken.
+ */
 export function clearAuthCookie(res: Response): void {
-  res.clearCookie("castify_token", {
-    httpOnly: true,
-    secure: config.COOKIE_SECURE,
-    sameSite: "lax",
-    path: "/",
-    domain: config.COOKIE_DOMAIN,
+  const base = cookieBaseOptions();
+
+  // Primary clear (same attributes as set)
+  res.clearCookie("castify_token", base);
+
+  // Force-expire overwrite (some browsers ignore clearCookie alone)
+  res.cookie("castify_token", "", {
+    ...base,
+    maxAge: 0,
+    expires: new Date(0),
   });
+
+  // Also clear host-only variant if we ever set Domain (belt & suspenders)
+  if (base.domain) {
+    const hostOnly = { ...base };
+    delete hostOnly.domain;
+    res.clearCookie("castify_token", hostOnly);
+    res.cookie("castify_token", "", {
+      ...hostOnly,
+      maxAge: 0,
+      expires: new Date(0),
+    });
+  }
 }
 
 /** Verify and decode a token. Returns null if invalid or expired. */

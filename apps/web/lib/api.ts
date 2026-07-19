@@ -221,6 +221,57 @@ class ApiClient {
     });
   }
 
+  // ── Billing (Razorpay Subscriptions) ──────────────────────────────────
+
+  getBillingPlans() {
+    return this.request<{
+      plans: BillingPlanPublic[];
+      razorpayEnabled: boolean;
+      currency: string;
+    }>("/billing/plans");
+  }
+
+  getBillingSubscription() {
+    return this.request<{
+      plan: PlanTier;
+      subscription: BillingSubscriptionPublic | null;
+      razorpayEnabled: boolean;
+    }>("/billing/subscription");
+  }
+
+  createBillingSubscription(tier: "PRO" = "PRO") {
+    return this.request<BillingCheckoutPayload>("/billing/subscribe", {
+      method: "POST",
+      body: JSON.stringify({ tier }),
+    });
+  }
+
+  verifyBillingPayment(payload: {
+    razorpay_payment_id: string;
+    razorpay_subscription_id: string;
+    razorpay_signature: string;
+  }) {
+    return this.request<{
+      verified: boolean;
+      plan: PlanTier;
+      subscriptionId: string;
+      paymentId: string;
+    }>("/billing/verify", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  }
+
+  cancelBillingSubscription() {
+    return this.request<{
+      cancelled: boolean;
+      cancelAtPeriodEnd: boolean;
+      plan: PlanTier;
+      currentEnd: string | null;
+      status: string;
+    }>("/billing/cancel", { method: "POST" });
+  }
+
   // ── Browse / Watch (auth required) ────────────────────────────────────
 
   browseStreams(params?: { q?: string; live?: boolean; following?: boolean }) {
@@ -340,6 +391,61 @@ export interface PlanEntitlements {
   maxQuality: string;
   allowedQualities: string[];
   labels: string;
+  maxActiveStreamKeys?: number;
+  maxConcurrentLive?: number;
+  privateStreams?: boolean;
+  advancedAnalytics?: boolean;
+  inviteCodes?: boolean;
+  /** Qualities locked behind paid plans (e.g. 1080p, 2k) */
+  premiumQualities?: string[];
+}
+
+export interface BillingPlanPublic {
+  tier: PlanTier;
+  name: string;
+  amountPaise: number;
+  currency: string;
+  period: string;
+  interval: number;
+  features: string[];
+  selfServe: boolean;
+  cta: string;
+  displayPrice: string;
+  razorpayLinked: boolean;
+}
+
+export interface BillingSubscriptionPublic {
+  id: string;
+  tier: PlanTier;
+  status: string;
+  razorpaySubscriptionId: string;
+  currentStart: string | null;
+  currentEnd: string | null;
+  cancelAtPeriodEnd: boolean;
+  planName: string;
+  amountPaise: number;
+  currency: string;
+  displayPrice: string;
+  recentPayments: {
+    id: string;
+    razorpayPaymentId: string;
+    amountPaise: number;
+    currency: string;
+    status: string;
+    createdAt: string;
+  }[];
+}
+
+export interface BillingCheckoutPayload {
+  keyId: string;
+  subscriptionId: string;
+  billingSubscriptionId: string;
+  tier: "PRO";
+  name: string;
+  description: string;
+  amountPaise: number;
+  currency: string;
+  prefill: { name?: string; email?: string; contact?: string };
 }
 
 export interface UserProfile {

@@ -8,7 +8,7 @@ interface PageHeaderProps {
   leading?: ReactNode;
   title: string;
   /** One short line — skip if it only restates the title */
-  description?: string;
+  description?: ReactNode;
   /** Right-side actions: keep compact, never full-width blocks */
   actions?: ReactNode;
   className?: string;

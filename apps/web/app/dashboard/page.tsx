@@ -7,6 +7,8 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { PageHeader } from "@/components/dashboard/page-header";
+import { PlanBadge } from "@/components/billing/plan-badge";
+import { UpgradeBanner } from "@/components/billing/upgrade-banner";
 import {
   RiVideoAddLine,
   RiKeyLine,
@@ -58,7 +60,14 @@ export default function DashboardPage() {
     <div className="space-y-5 sm:space-y-6 animate-fade-up min-w-0">
       <PageHeader
         title="Overview"
-        description={`${greeting}, ${firstName}`}
+        description={
+          <span className="inline-flex items-center gap-2 flex-wrap">
+            <span>
+              {greeting}, {firstName}
+            </span>
+            <PlanBadge plan={user?.plan} size="xs" />
+          </span>
+        }
         actions={
           <Button size="sm" asChild className="btn-primary-flat gap-1.5">
             <Link href="/dashboard/streams/new">
@@ -71,6 +80,8 @@ export default function DashboardPage() {
           </Button>
         }
       />
+
+      <UpgradeBanner plan={user?.plan} />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
         <div className="supabase-panel lg:col-span-2 p-4 sm:p-6 flex flex-col justify-between min-h-[220px] sm:min-h-[260px] relative overflow-hidden">

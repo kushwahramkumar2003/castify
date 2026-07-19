@@ -3,6 +3,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { PageHeader } from "@/components/dashboard/page-header";
+import { UpgradeBanner } from "@/components/billing/upgrade-banner";
+import { PlanBadge } from "@/components/billing/plan-badge";
+import { useAuth } from "@/lib/auth";
 import { api, type Stream } from "@/lib/api";
 import {
   RiLineChartLine,
@@ -24,8 +27,13 @@ function formatHours(seconds: number): string {
 }
 
 export default function AnalyticsPage() {
+  const { user } = useAuth();
   const [streams, setStreams] = useState<Stream[]>([]);
   const [loading, setLoading] = useState(true);
+  const isPremium =
+    user?.plan === "PRO" ||
+    user?.plan === "ENTERPRISE" ||
+    user?.entitlements?.advancedAnalytics;
 
   useEffect(() => {
     api
@@ -121,7 +129,12 @@ export default function AnalyticsPage() {
     <div className="space-y-5 sm:space-y-6 animate-fade-up min-w-0">
       <PageHeader
         title="Analytics"
-        description="Real numbers from your broadcasts — no demo charts."
+        description={
+          <span className="inline-flex items-center gap-2 flex-wrap">
+            <span>Real numbers from your broadcasts — no demo charts.</span>
+            <PlanBadge plan={user?.plan} size="xs" />
+          </span>
+        }
         actions={
           <Badge className="gap-1.5 px-2 py-0.5 text-[10px] font-medium rounded border bg-emerald-500/8 text-emerald-400 border-emerald-500/20">
             <span className="size-1.5 rounded-full bg-emerald-400" />
@@ -129,6 +142,14 @@ export default function AnalyticsPage() {
           </Badge>
         }
       />
+
+      {!isPremium && (
+        <UpgradeBanner
+          plan={user?.plan}
+          compact
+          message="Basic totals are free. Pro unlocks deeper retention insights and priority analytics as we expand this page."
+        />
+      )}
 
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5 sm:gap-4">
         {statCards.map((s) => (

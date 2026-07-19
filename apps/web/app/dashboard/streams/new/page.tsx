@@ -28,6 +28,8 @@ import {
   RiFlashlightLine,
 } from "react-icons/ri";
 import { toast } from "sonner";
+import { UpgradeBanner } from "@/components/billing/upgrade-banner";
+import { PlanBadge } from "@/components/billing/plan-badge";
 
 const RTMP_SERVER = "rtmp://localhost:1935/live";
 const PRIMARY = "#3ecf8e";
@@ -243,8 +245,21 @@ export default function NewStreamPage() {
           </Button>
         }
         title="New broadcast"
-        description="Title, quality, and OBS credentials."
+        description={
+          <span className="inline-flex items-center gap-2 flex-wrap">
+            <span>Title, quality, and OBS credentials.</span>
+            {entitlements && <PlanBadge plan={entitlements.plan} size="xs" />}
+          </span>
+        }
       />
+
+      {entitlements?.plan === "FREE" && (
+        <UpgradeBanner
+          plan="FREE"
+          compact
+          message="1080p and 2K rungs are locked on Free. Upgrade to Pro for the full ABR ladder and more concurrent lives."
+        />
+      )}
 
       {/* Step indicator */}
       <div className="flex items-center gap-2 sm:gap-3" role="list" aria-label="Setup progress">
@@ -456,8 +471,15 @@ export default function NewStreamPage() {
                   </div>
                 </div>
                 <p className="text-[10px] text-muted-foreground leading-relaxed">
-                  Only selected rungs are transcoded and shown to viewers. Higher
-                  qualities require a plan upgrade.
+                  Only selected rungs are transcoded and shown to viewers. Locked
+                  rungs require{" "}
+                  <Link
+                    href="/dashboard/billing"
+                    className="text-sky-400 hover:underline"
+                  >
+                    Pro or higher
+                  </Link>
+                  .
                 </p>
                 <div className="grid grid-cols-1 xs:grid-cols-2 gap-2 sm:gap-2.5">
                   {QUALITIES.map((q) => {
@@ -472,9 +494,14 @@ export default function NewStreamPage() {
                         onClick={() => toggleQuality(q.key)}
                         aria-pressed={active}
                         aria-disabled={!allowed}
+                        title={
+                          !allowed
+                            ? `${q.label} requires Pro Studio — open Billing to upgrade`
+                            : undefined
+                        }
                         className={`flex items-center justify-between gap-2 p-3 rounded-md border text-left transition-all duration-150 min-h-[52px] ${
                           !allowed
-                            ? "bg-[#101010] border-border/50 text-muted-foreground/50 cursor-not-allowed opacity-70"
+                            ? "bg-[#101010] border-amber-500/15 text-muted-foreground/50 cursor-not-allowed opacity-80"
                             : active
                             ? "bg-emerald-500/8 border-emerald-500/35 text-foreground shadow-[inset_0_0_0_1px_rgba(62,207,142,0.08)]"
                             : "bg-[#141414] border-border text-muted-foreground hover:bg-[#1a1a1a] hover:border-white/10"
@@ -489,8 +516,8 @@ export default function NewStreamPage() {
                               </span>
                             )}
                             {!allowed && (
-                              <span className="text-[8px] font-bold uppercase tracking-wider text-amber-400/90 bg-amber-500/10 px-1 py-px rounded">
-                                upgrade
+                              <span className="inline-flex items-center gap-0.5 text-[8px] font-bold uppercase tracking-wider text-amber-400/90 bg-amber-500/10 px-1 py-px rounded">
+                                <RiLockLine className="size-2.5" /> Pro
                               </span>
                             )}
                           </div>
@@ -506,6 +533,9 @@ export default function NewStreamPage() {
                           }`}
                         >
                           {active && allowed && <RiCheckLine className="size-2.5" />}
+                          {!allowed && (
+                            <RiLockLine className="size-2.5 text-amber-400/80" />
+                          )}
                         </span>
                       </button>
                     );

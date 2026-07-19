@@ -1,12 +1,15 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { api, type StreamKey } from "@/lib/api";
+import Link from "next/link";
+import { api, type PlanEntitlements, type StreamKey } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { PageHeader } from "@/components/dashboard/page-header";
+import { PlanBadge } from "@/components/billing/plan-badge";
+import { UpgradeBanner } from "@/components/billing/upgrade-banner";
 import {
   RiKeyLine,
   RiAddLine,
@@ -125,6 +128,9 @@ export default function StreamKeysPage() {
   const [keys, setKeys] = useState<StreamKey[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
+  const [entitlements, setEntitlements] = useState<PlanEntitlements | null>(
+    null
+  );
 
   useEffect(() => {
     api
@@ -132,9 +138,30 @@ export default function StreamKeysPage() {
       .then((r) => setKeys(r.data))
       .catch(() => toast.error("Failed to load stream keys"))
       .finally(() => setLoading(false));
+    api
+      .getEntitlements()
+      .then((r) => setEntitlements(r.data))
+      .catch(() =>
+        setEntitlements({
+          plan: "FREE",
+          maxQuality: "720p",
+          allowedQualities: ["720p", "480p", "360p"],
+          labels: "Free Node",
+          maxActiveStreamKeys: 1,
+        })
+      );
   }, []);
 
+  const maxKeys = entitlements?.maxActiveStreamKeys ?? 1;
+  const atKeyLimit = keys.length >= maxKeys;
+
   async function handleCreate() {
+    if (atKeyLimit) {
+      toast.error(
+        `Your plan allows ${maxKeys} active key${maxKeys === 1 ? "" : "s"}. Upgrade in Billing for more.`
+      );
+      return;
+    }
     setCreating(true);
     try {
       const res = await api.createStreamKey({ label: `Key ${keys.length + 1}` });
@@ -193,7 +220,17 @@ export default function StreamKeysPage() {
     <div className="space-y-5 sm:space-y-6 animate-fade-up min-w-0">
       <PageHeader
         title="Stream keys"
-        description="Secrets for OBS and other encoders."
+        description={
+          <span className="inline-flex items-center gap-2 flex-wrap">
+            <span>Secrets for OBS and other encoders.</span>
+            {entitlements && <PlanBadge plan={entitlements.plan} size="xs" />}
+            {entitlements && (
+              <span className="text-[10px] font-mono text-muted-foreground">
+                {keys.length}/{maxKeys} active
+              </span>
+            )}
+          </span>
+        }
         actions={
           <>
             <Button
@@ -211,7 +248,12 @@ export default function StreamKeysPage() {
               size="sm"
               className="btn-primary-flat gap-1.5"
               onClick={handleCreate}
-              disabled={creating}
+              disabled={creating || atKeyLimit}
+              title={
+                atKeyLimit
+                  ? `Plan limit: ${maxKeys} key(s). Upgrade for more.`
+                  : "Generate key"
+              }
             >
               {creating ? (
                 <RiLoader4Line className="size-3.5 spin" />
@@ -223,6 +265,14 @@ export default function StreamKeysPage() {
           </>
         }
       />
+
+      {atKeyLimit && entitlements?.plan === "FREE" && (
+        <UpgradeBanner
+          plan="FREE"
+          compact
+          message={`Free includes ${maxKeys} active stream key. Pro unlocks up to 5 keys and more concurrent lives.`}
+        />
+      )}
 
       <div className="callout-warn">
         <RiShieldLine className="size-5 shrink-0 mt-0.5" style={{ color: AMBER }} />

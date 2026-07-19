@@ -11,7 +11,19 @@ export const asyncHandler = <T extends AnyAsyncFunction>(
     } catch (error: any) {
       let errorType = "Unknown Error";
       let errorMessage = error?.message || String(error);
-      if (error?.code?.startsWith("P") || error?.name?.includes("Prisma")) {
+
+      // Razorpay SDK throws plain objects: { statusCode, error: { description } }
+      if (
+        error &&
+        typeof error === "object" &&
+        (error.statusCode || error.error?.description)
+      ) {
+        errorType = "Payment Provider Error";
+        errorMessage =
+          error.error?.description ||
+          error.message ||
+          `Upstream status ${error.statusCode ?? "unknown"}`;
+      } else if (error?.code?.startsWith("P") || error?.name?.includes("Prisma")) {
         errorType = "Prisma DB Error";
         errorMessage = `[Code: ${error.code || "N/A"}] ${errorMessage}`;
       } else if (
@@ -28,7 +40,7 @@ export const asyncHandler = <T extends AnyAsyncFunction>(
       } else if (error instanceof Error) {
         errorType = "Runtime Error";
       }
-      console.error(`[${errorType}] in ${contextName} ->`, errorMessage);
+      console.error(`[${errorType}] in ${contextName} ->`, errorMessage, error);
       const res = args[1];
       const next = args[2];
 
@@ -38,17 +50,29 @@ export const asyncHandler = <T extends AnyAsyncFunction>(
         typeof res.json === "function";
       const isExpressNext = typeof next === "function";
 
-      if (isExpressNext) {
-        return next(error);
-      } else if (isExpressRes) {
-        res.status(500).json({
+      // Prefer JSON error responses over Express default HTML "[object Object]"
+      if (isExpressRes && !res.headersSent) {
+        // Never map payment-provider 401 to session Unauthorized
+        const rawStatus =
+          typeof error?.statusCode === "number" ? error.statusCode : 500;
+        const status =
+          errorType === "Payment Provider Error" || rawStatus === 401
+            ? 502
+            : rawStatus >= 400 && rawStatus < 600
+              ? rawStatus
+              : 500;
+        res.status(status).json({
           success: false,
-          error: "Internal Server Error",
+          message: errorMessage,
           type: errorType,
           details:
             process.env.NODE_ENV !== "production" ? errorMessage : undefined,
         });
         return;
+      }
+
+      if (isExpressNext) {
+        return next(error instanceof Error ? error : new Error(errorMessage));
       }
       return undefined;
     }

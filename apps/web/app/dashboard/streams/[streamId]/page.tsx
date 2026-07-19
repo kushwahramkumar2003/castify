@@ -593,6 +593,7 @@ export default function StreamStudioPage() {
                 onRefresh={() => fetchDetail(true)}
                 isLive={!!stream.isLive}
                 liveEpoch={liveEpoch}
+                qualities={stream.qualities ?? []}
               />
               {stream.tags.length > 0 && (
                 <div className="flex flex-wrap gap-1.5">

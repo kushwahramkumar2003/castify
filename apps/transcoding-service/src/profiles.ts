@@ -37,12 +37,12 @@ export const QUALITY_PROFILES: Record<QualityLabel, QualityProfile> = {
   "2k": {
     label: "2k",
     width: 2560, height: 1440,
-    // 2K (1440p) — 8 Mbps video is the Twitch/YouTube recommended for 1440p60.
-    // Only enable if OBS is sending 1440p+ source and CPU can handle it.
-    // On M-series Mac: use 'fast' or 'medium' preset to avoid quality degradation.
-    videoBitrateKbps: 8_000, maxVideoBitrateKbps: 8_800, bufSizeKbps: 16_000,
-    audioBitrateKbps: 192,
-    frameRate: 60,
+    // 2K (1440p) — 6 Mbps @ 30fps is far more realistic for local multi-rung
+    // live encode than 8 Mbps @ 60fps (which saturates a single machine).
+    // OBS may send 1440p60; we downscale fps in the ladder for CPU headroom.
+    videoBitrateKbps: 6_000, maxVideoBitrateKbps: 6_600, bufSizeKbps: 12_000,
+    audioBitrateKbps: 160,
+    frameRate: 30,
   },
   "1080p": {
     label: "1080p",

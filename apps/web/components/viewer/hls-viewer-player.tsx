@@ -231,6 +231,15 @@ export function HlsViewerPlayer({
             return;
           }
           if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+            // Missing quality playlist (e.g. Pro UI shows 2k but transcoder
+            // never wrote that rung) — fall back to Auto/master.
+            if (selectedQuality !== "auto" && masterUrl) {
+              setSelectedQuality("auto");
+              setError(
+                `${selectedQuality} is not available on this stream yet. Switched to Auto.`
+              );
+              return;
+            }
             try {
               hls.startLoad();
             } catch {
@@ -247,7 +256,7 @@ export function HlsViewerPlayer({
               hls.recoverMediaError();
             } catch {
               setConnecting(false);
-              setError("Playback error — try another quality.");
+              setError("Playback error — try another quality or Auto.");
             }
           } else {
             setConnecting(false);

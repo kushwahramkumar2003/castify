@@ -54,20 +54,22 @@ export class StreamWorker {
   private readonly profiles;
 
   constructor(private readonly event: StreamStartedEvent) {
-    // Prefer per-stream ladder from creator settings; fall back to operator config.
-    // Always intersect with FFMPEG_QUALITIES so ops can cap the platform ladder.
-    const platform = new Set(
-      config.FFMPEG_QUALITIES.split(",")
-        .map((q) => q.trim())
-        .filter(Boolean)
-    );
-    const requested =
+    // Quality ladder is driven by the stream (creator plan + studio selection)
+    // published on stream.started. Do NOT force-intersect with a restrictive
+    // FFMPEG_QUALITIES env — that drops Pro 1080p/2k when env only lists 720p.
+    // FFMPEG_QUALITIES is only a fallback when the event has no qualities.
+    const fromStream =
       event.qualities && event.qualities.length > 0
-        ? event.qualities
-        : ([...platform] as QualityLabel[]);
-    const filtered = requested.filter((q) => platform.has(q)).join(",");
-    this.profiles = resolveProfiles(filtered || config.FFMPEG_QUALITIES);
+        ? event.qualities.join(",")
+        : "";
+    const ladder = fromStream || config.FFMPEG_QUALITIES;
+    this.profiles = resolveProfiles(ladder);
     this.qualities = this.profiles.map((p) => p.label);
+    if (fromStream && this.qualities.length === 0) {
+      // Unknown labels only — fall back so FFmpeg still starts
+      this.profiles = resolveProfiles(config.FFMPEG_QUALITIES);
+      this.qualities = this.profiles.map((p) => p.label);
+    }
     // A reconnect starts a new worker for the same stream key. Give every
     // worker its own directory so delayed cleanup from the prior connection
     // cannot delete files that the new FFmpeg process is actively producing.

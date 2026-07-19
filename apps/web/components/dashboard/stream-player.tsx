@@ -28,9 +28,15 @@ type HlsInstance = {
   recoverMediaError: () => void;
   liveSyncPosition: number | null | undefined;
   bandwidthEstimate?: number;
+  levels?: { height?: number; bitrate?: number }[];
+  currentLevel: number;
+  loadLevel: number;
+  nextLevel: number;
 };
 
 export type PlayerMode = "live" | "vod" | "offline";
+
+const QUALITY_ORDER = ["2k", "1080p", "720p", "480p", "360p"] as const;
 
 interface StreamPlayerMonitorProps {
   mode: PlayerMode;
@@ -47,15 +53,37 @@ interface StreamPlayerMonitorProps {
    * stack — full-width video, compact metrics below (studio + chat)
    */
   layout?: "split" | "stack";
+  /** Stream quality ladder from plan/studio selection (e.g. 2k,1080p,720p) */
+  qualities?: string[] | null;
 }
 
-function getLiveStreamUrl(key: string) {
-  const configUrl = process.env.NEXT_PUBLIC_HLS_BASE_URL;
-  if (configUrl) {
-    const base = configUrl.replace(/\/$/, "");
-    return `${base}/${key}/master.m3u8`;
+/**
+ * Live HLS URL for master or a single quality ladder rung.
+ * Packager layout: live/<streamKey>/master.m3u8 and live/<key>/<quality>/index.m3u8
+ */
+function getLiveStreamUrl(key: string, quality?: string | null) {
+  const envBase = process.env.NEXT_PUBLIC_HLS_BASE_URL?.replace(/\/$/, "");
+  const isMinioStyle =
+    !envBase ||
+    envBase.includes("hls-segments") ||
+    envBase.includes("/minio/");
+
+  if (isMinioStyle) {
+    const root =
+      envBase && (envBase.includes("hls-segments") || envBase.includes("/minio/"))
+        ? envBase
+        : "http://localhost:8080/minio/hls-segments";
+    if (quality && quality !== "auto") {
+      return `${root}/live/${key}/${quality}/index.m3u8`;
+    }
+    return `${root}/live/${key}/master.m3u8`;
   }
-  return `http://localhost:8080/minio/hls-segments/live/${key}/master.m3u8`;
+
+  // nginx /hls style: /hls/<streamKey>/master.m3u8
+  if (quality && quality !== "auto") {
+    return `${envBase}/${key}/${quality}/index.m3u8`;
+  }
+  return `${envBase}/${key}/master.m3u8`;
 }
 
 function getVodPlayUrl(playlistUrl: string) {
@@ -84,6 +112,7 @@ export function StreamPlayerMonitor({
   isLive = false,
   liveEpoch = 0,
   layout = "split",
+  qualities = null,
 }: StreamPlayerMonitorProps) {
   const stacked = layout === "stack";
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -91,7 +120,7 @@ export function StreamPlayerMonitor({
 
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(true);
-  const [resolution, setResolution] = useState("720p");
+  const [resolution, setResolution] = useState("auto");
   const [isConnecting, setIsConnecting] = useState(false);
   const [ingestDown, setIngestDown] = useState(mode === "live" && !isLive);
   const [hasEverHadMedia, setHasEverHadMedia] = useState(false);
@@ -105,9 +134,17 @@ export function StreamPlayerMonitor({
   const [droppedFrames, setDroppedFrames] = useState(0);
   const [videoHeight, setVideoHeight] = useState(0);
 
+  const qualityOptions = (qualities?.length
+    ? QUALITY_ORDER.filter((q) => qualities.includes(q))
+    : (["1080p", "720p", "480p", "360p"] as const)
+  ).slice();
+
   const basePlaybackUrl =
     mode === "live" && streamKey
-      ? getLiveStreamUrl(streamKey)
+      ? getLiveStreamUrl(
+          streamKey,
+          resolution === "auto" ? null : resolution
+        )
       : mode === "vod" && vodUrl
       ? getVodPlayUrl(vodUrl)
       : null;
@@ -335,7 +372,7 @@ export function StreamPlayerMonitor({
       hlsRef.current?.destroy();
       hlsRef.current = null;
     };
-  }, [basePlaybackUrl, mode, isLive, liveEpoch, isActiveLive]);
+  }, [basePlaybackUrl, mode, isLive, liveEpoch, isActiveLive, resolution]);
 
   // Real player telemetry only — no simulated bitrate/FPS
   useEffect(() => {
@@ -578,11 +615,14 @@ export function StreamPlayerMonitor({
                   onChange={(e) => setResolution(e.target.value)}
                   disabled={statusLabel !== "LIVE"}
                   aria-label="Quality"
-                  className="bg-[#141414] border border-border rounded-md px-1.5 py-1 text-[9px] font-mono text-muted-foreground focus:outline-none focus:border-emerald-500 disabled:opacity-50 max-w-[100px] sm:max-w-none"
+                  className="bg-[#141414] border border-border rounded-md px-1.5 py-1 text-[9px] font-mono text-muted-foreground focus:outline-none focus:border-emerald-500 disabled:opacity-50 max-w-[120px] sm:max-w-none"
                 >
-                  <option value="1080p">1080p</option>
-                  <option value="720p">720p</option>
-                  <option value="480p">480p</option>
+                  <option value="auto">Auto (ABR)</option>
+                  {qualityOptions.map((q) => (
+                    <option key={q} value={q}>
+                      {q}
+                    </option>
+                  ))}
                 </select>
               </>
             )}

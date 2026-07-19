@@ -11,12 +11,19 @@ const env = z.object({
   NODE_ENV:    z.enum(["development", "test", "production"]).default("development"),
   LOG_LEVEL:   z.enum(["trace", "debug", "info", "warn", "error", "fatal"]).default("info"),
 
-  // ── Instance identity (for distributed tracing & MinIO paths) ─────────────
-  // Each running instance gets a unique ID so segments from different instances
-  // don't collide in temp storage.  Set by docker/k8s; auto-generated locally.
-  INSTANCE_ID: z.string().default(() => `ts-${Math.random().toString(36).slice(2, 8)}`),
+  // ── Instance identity (temp paths + Kafka client id) ─────────────────────
+  // Override per process when running multiple transcoders on one machine:
+  //   PORT=3002 INSTANCE_ID=ts-a bun run dev
+  //   PORT=3003 INSTANCE_ID=ts-b bun run dev
+  // If omitted, a random id is generated (fine for single instance).
+  INSTANCE_ID: z
+    .string()
+    .min(1)
+    .default(() => `ts-${Math.random().toString(36).slice(2, 8)}`),
 
   // ── Kafka ──────────────────────────────────────────────────────────────────
+  // All instances share KAFKA_GROUP_ID so Kafka load-balances stream.started
+  // across workers (one stream → one instance). Client id is unique per instance.
   KAFKA_BROKERS:                   z.string().default("localhost:9092"),
   KAFKA_CLIENT_ID:                 z.string().default("transcoding-service"),
   KAFKA_GROUP_ID:                  z.string().default("transcoding-service-group"),
@@ -49,8 +56,10 @@ const env = z.object({
   // 480p  = 480p 30fps  — 1.4 Mbps — mobile / weaker connections
   // 360p  = 360p 30fps  — 0.6 Mbps — very low bandwidth
   //
-  // Recommended for M-series Mac (local dev): "1080p,720p,480p,360p"
-  // Full 2K ladder (high CPU):               "2k,1080p,720p,480p,360p"
+  // Fallback ladder when stream.started has no qualities[] (should be rare).
+  // Per-stream ladder from creator plan/selection always takes priority.
+  // Include the full platform set so Pro/Enterprise are not env-capped.
+  // Full ladder: "2k,1080p,720p,480p,360p"
   FFMPEG_QUALITIES: z.string().default("2k,1080p,720p,480p,360p"),
 
   // HLS segment duration in seconds — must match nginx rtmp.conf hls_fragment

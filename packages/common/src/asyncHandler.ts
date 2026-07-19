@@ -61,12 +61,24 @@ export const asyncHandler = <T extends AnyAsyncFunction>(
             : rawStatus >= 400 && rawStatus < 600
               ? rawStatus
               : 500;
+
+        // User-facing message: never leak provider/env/DB internals
+        const publicMessage =
+          errorType === "Payment Provider Error" ||
+          errorType === "Prisma DB Error" ||
+          errorType === "Redis Error" ||
+          errorType === "Network Error" ||
+          /razorpay|RAZORPAY_|KEY_ID|plan_|prisma|ECONNREFUSED|localhost/i.test(
+            errorMessage
+          )
+            ? "Something went wrong. Please try again later."
+            : error instanceof Error && errorMessage.length < 160
+              ? errorMessage
+              : "Something went wrong. Please try again later.";
+
         res.status(status).json({
           success: false,
-          message: errorMessage,
-          type: errorType,
-          details:
-            process.env.NODE_ENV !== "production" ? errorMessage : undefined,
+          message: publicMessage,
         });
         return;
       }

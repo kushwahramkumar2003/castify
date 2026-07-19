@@ -139,10 +139,10 @@ export function parseStreamQualities(
     const max = PLAN_MAX_QUALITY[plan];
     return {
       ok: false,
-      message: `Your ${plan} plan allows up to ${max}. Not allowed: ${disallowed.join(", ")}. Upgrade in Billing to unlock higher rungs.`,
+      message: `Your current plan allows up to ${max}. Upgrade in Billing to unlock higher quality.`,
       errors: {
         qualities: disallowed.map(
-          (q) => `${q} is not included in the ${plan} plan (max ${max})`
+          (q) => `${q} requires a higher plan (max on your plan is ${max})`
         ),
       },
     };

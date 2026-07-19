@@ -83,9 +83,8 @@ export async function ensureProBillingPlan() {
       },
     });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    throw new Error(
-      `${msg} Hint: set RAZORPAY_PRO_PLAN_ID=plan_… from Razorpay Dashboard → Subscriptions → Plans (Test Mode) to skip API plan creation.`
-    );
+    // Log full provider detail; never surface env/dashboard instructions to clients
+    console.error("[ensureProBillingPlan] provider plan create failed", err);
+    throw new Error("BILLING_PLAN_UNAVAILABLE");
   }
 }

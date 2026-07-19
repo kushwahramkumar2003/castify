@@ -80,10 +80,9 @@ export function requireMinPlan(min: PlanTier) {
       if (!planMeetsMinimum(plan, min)) {
         res.status(403).json({
           success: false,
-          message: `This feature requires the ${min} plan or higher. You are on ${plan}. Upgrade in Billing.`,
+          message:
+            "This feature is not available on your current plan. Upgrade in Billing to unlock it.",
           code: "PLAN_REQUIRED",
-          requiredPlan: min,
-          currentPlan: plan,
         });
         return;
       }

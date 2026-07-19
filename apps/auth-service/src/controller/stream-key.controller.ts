@@ -114,16 +114,8 @@ export const createStreamKey = asyncHandler(async (req: Request, res: Response) 
   if (activeKeyCount >= limits.maxActiveStreamKeys) {
     return castifyError(
       res,
-      `Your ${plan} plan allows ${limits.maxActiveStreamKeys} active stream key${
-        limits.maxActiveStreamKeys === 1 ? "" : "s"
-      }. Revoke an unused key or upgrade to Pro in Billing.`,
-      STATUS_CODE.FORBIDDEN,
-      {
-        code: ["PLAN_LIMIT_STREAM_KEYS"],
-        maxActiveStreamKeys: [String(limits.maxActiveStreamKeys)],
-        current: [String(activeKeyCount)],
-        requiredPlan: [plan === "FREE" ? "PRO" : "ENTERPRISE"],
-      }
+      `You have reached the stream key limit for your plan (${limits.maxActiveStreamKeys}). Revoke an unused key or upgrade in Billing.`,
+      STATUS_CODE.FORBIDDEN
     );
   }
 
@@ -321,9 +313,7 @@ export const validateStreamKey = asyncHandler(async (req: Request, res: Response
   if (otherLive >= limits.maxConcurrentLive) {
     return castifyError(
       res,
-      `Your ${plan} plan allows ${limits.maxConcurrentLive} concurrent live stream${
-        limits.maxConcurrentLive === 1 ? "" : "s"
-      }. End another broadcast or upgrade in Billing.`,
+      `You have reached the concurrent live limit for your plan. End another broadcast or upgrade in Billing.`,
       STATUS_CODE.FORBIDDEN
     );
   }
@@ -391,7 +381,7 @@ export const startStreamInternal = asyncHandler(async (req: Request, res: Respon
   if (otherLive >= limits.maxConcurrentLive) {
     return castifyError(
       res,
-      `Plan limit: max ${limits.maxConcurrentLive} concurrent live stream(s) on ${plan}`,
+      "Concurrent live limit reached for this account.",
       STATUS_CODE.FORBIDDEN
     );
   }

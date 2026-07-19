@@ -79,7 +79,7 @@ export const listBillingPlans = asyncHandler(
       res,
       {
         plans,
-        razorpayEnabled: isRazorpayConfigured(),
+        checkoutAvailable: isRazorpayConfigured(),
         currency: config.BILLING_CURRENCY || "INR",
       },
       STATUS_MSG.OK
@@ -145,7 +145,7 @@ export const getMyBillingSubscription = asyncHandler(
               })),
             }
           : null,
-        razorpayEnabled: isRazorpayConfigured(),
+        checkoutAvailable: isRazorpayConfigured(),
       },
       STATUS_MSG.OK
     );
@@ -166,9 +166,10 @@ export const createSubscriptionCheckout = asyncHandler(
     }
 
     if (!isRazorpayConfigured()) {
+      console.error("[billing/subscribe] payment provider not configured");
       return castifyError(
         res,
-        "Payments are not configured. Set RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET.",
+        "Checkout is temporarily unavailable. Please try again later.",
         STATUS_CODE.SERVICE_UNAVAILABLE
       );
     }
@@ -217,17 +218,18 @@ export const createSubscriptionCheckout = asyncHandler(
     try {
       plan = await ensureProBillingPlan();
     } catch (err) {
-      const msg =
-        err instanceof Error
-          ? err.message
-          : "Failed to create/link Razorpay PRO plan";
       console.error("[billing/subscribe] ensureProBillingPlan", err);
-      return castifyError(res, msg, STATUS_CODE.BAD_GATEWAY);
-    }
-    if (!plan) {
       return castifyError(
         res,
-        "Pro plan is not linked. Set RAZORPAY_PRO_PLAN_ID (plan_xxx from Dashboard Test Mode) or fix RAZORPAY_KEY_ID/SECRET so a plan can be auto-created.",
+        "We could not start checkout. Please try again later.",
+        STATUS_CODE.BAD_GATEWAY
+      );
+    }
+    if (!plan) {
+      console.error("[billing/subscribe] PRO plan not linked in billing_plans");
+      return castifyError(
+        res,
+        "Checkout is temporarily unavailable. Please try again later.",
         STATUS_CODE.SERVICE_UNAVAILABLE
       );
     }
@@ -255,12 +257,12 @@ export const createSubscriptionCheckout = asyncHandler(
           },
         });
       } catch (err) {
-        const msg =
-          err instanceof Error
-            ? err.message
-            : "Failed to create Razorpay subscription";
         console.error("[billing/subscribe] createRazorpaySubscription", err);
-        return castifyError(res, msg, STATUS_CODE.BAD_GATEWAY);
+        return castifyError(
+          res,
+          "We could not start checkout. Please try again later.",
+          STATUS_CODE.BAD_GATEWAY
+        );
       }
 
       billingSubId = randomUUID();
@@ -330,7 +332,7 @@ export const verifySubscriptionPayment = asyncHandler(
     if (!ok) {
       return castifyError(
         res,
-        "Invalid payment signature",
+        "We could not confirm this payment. Please try again or contact support.",
         STATUS_CODE.BAD_REQUEST
       );
     }
@@ -431,9 +433,10 @@ export const cancelMySubscription = asyncHandler(
     }
 
     if (!isRazorpayConfigured()) {
+      console.error("[billing/cancel] payment provider not configured");
       return castifyError(
         res,
-        "Payments are not configured",
+        "We could not cancel right now. Please try again later.",
         STATUS_CODE.SERVICE_UNAVAILABLE
       );
     }
@@ -446,13 +449,12 @@ export const cancelMySubscription = asyncHandler(
         true
       );
     } catch (err: unknown) {
-      const msg =
-        err && typeof err === "object" && "error" in err
-          ? JSON.stringify((err as { error: unknown }).error)
-          : err instanceof Error
-            ? err.message
-            : "Cancel failed";
-      return castifyError(res, msg, STATUS_CODE.BAD_GATEWAY);
+      console.error("[billing/cancel] provider error", err);
+      return castifyError(
+        res,
+        "We could not cancel right now. Please try again later.",
+        STATUS_CODE.BAD_GATEWAY
+      );
     }
 
     await prisma.billingSubscription.update({

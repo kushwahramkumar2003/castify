@@ -226,7 +226,10 @@ class ApiClient {
   getBillingPlans() {
     return this.request<{
       plans: BillingPlanPublic[];
-      razorpayEnabled: boolean;
+      /** Whether checkout can start (no internal reason exposed) */
+      checkoutAvailable: boolean;
+      /** @deprecated use checkoutAvailable */
+      razorpayEnabled?: boolean;
       currency: string;
     }>("/billing/plans");
   }
@@ -235,7 +238,8 @@ class ApiClient {
     return this.request<{
       plan: PlanTier;
       subscription: BillingSubscriptionPublic | null;
-      razorpayEnabled: boolean;
+      checkoutAvailable: boolean;
+      razorpayEnabled?: boolean;
     }>("/billing/subscription");
   }
 

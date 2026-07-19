@@ -257,7 +257,7 @@ export default function NewStreamPage() {
         <UpgradeBanner
           plan="FREE"
           compact
-          message="1080p and 2K rungs are locked on Free. Upgrade to Pro for the full ABR ladder and more concurrent lives."
+          message="Higher resolutions are available on Pro. Upgrade to unlock them and stream to more people at once."
         />
       )}
 
@@ -313,10 +313,12 @@ export default function NewStreamPage() {
             </div>
             <div className="min-w-0">
               <h3 className="text-sm font-bold text-foreground truncate">
-                {step === 1 ? "Configure Ingest Broadcast" : "RTMP Credentials"}
+                {step === 1 ? "Set up your broadcast" : "Connection details"}
               </h3>
-              <p className="text-[10px] text-muted-foreground font-mono uppercase tracking-wider mt-0.5">
-                {step === 1 ? "Session parameters" : "OBS · Streamlabs · vMix"}
+              <p className="text-[10px] text-muted-foreground uppercase tracking-wider mt-0.5">
+                {step === 1
+                  ? "Title, privacy, and video quality"
+                  : "For OBS, Streamlabs, or similar apps"}
               </p>
             </div>
           </div>
@@ -456,7 +458,7 @@ export default function NewStreamPage() {
               <div className="space-y-2">
                 <div className="flex items-center justify-between gap-2 flex-wrap">
                   <label className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider block">
-                    Transcoding Qualities
+                    Video quality options
                   </label>
                   <div className="flex items-center gap-2">
                     {entitlements && (

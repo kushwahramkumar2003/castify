@@ -278,7 +278,7 @@ export function HlsViewerPlayer({
         );
       } else {
         setConnecting(false);
-        setError("HLS is not supported in this browser.");
+        setError("This browser can't play this stream. Try Chrome or Firefox.");
       }
     })();
 
@@ -453,7 +453,7 @@ export function HlsViewerPlayer({
               Connecting to stream…
             </p>
             <p className="text-[10px] text-muted-foreground">
-              Loading HLS from storage
+              Loading stream…
             </p>
           </div>
         )}
@@ -579,7 +579,7 @@ export function HlsViewerPlayer({
                       setShowQualityMenu(false);
                     }}
                   >
-                    Auto (ABR)
+                    Auto
                   </button>
                   {qualityOptions.map((q) => (
                     <button

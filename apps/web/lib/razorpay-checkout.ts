@@ -43,7 +43,7 @@ let loading: Promise<void> | null = null;
 
 export function loadRazorpayScript(): Promise<void> {
   if (typeof window === "undefined") {
-    return Promise.reject(new Error("Razorpay requires a browser"));
+    return Promise.reject(new Error("Checkout is only available in the browser"));
   }
   if (window.Razorpay) return Promise.resolve();
   if (loading) return loading;
@@ -55,7 +55,7 @@ export function loadRazorpayScript(): Promise<void> {
     if (existing) {
       existing.addEventListener("load", () => resolve());
       existing.addEventListener("error", () =>
-        reject(new Error("Failed to load Razorpay Checkout"))
+        reject(new Error("Checkout is temporarily unavailable. Please try again."))
       );
       if (window.Razorpay) resolve();
       return;
@@ -67,7 +67,9 @@ export function loadRazorpayScript(): Promise<void> {
     script.onload = () => resolve();
     script.onerror = () => {
       loading = null;
-      reject(new Error("Failed to load Razorpay Checkout"));
+      reject(
+        new Error("Checkout is temporarily unavailable. Please try again.")
+      );
     };
     document.body.appendChild(script);
   });
@@ -80,7 +82,7 @@ export async function openRazorpayCheckout(
 ): Promise<void> {
   await loadRazorpayScript();
   if (!window.Razorpay) {
-    throw new Error("Razorpay Checkout is not available");
+    throw new Error("Checkout is temporarily unavailable. Please try again.");
   }
   const rzp = new window.Razorpay(options);
   rzp.open();

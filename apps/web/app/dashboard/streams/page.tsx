@@ -217,7 +217,7 @@ export default function StreamsPage() {
                 <p className="text-xs text-muted-foreground mt-1 mb-4 max-w-xs">
                   {search
                     ? "No sessions match your search."
-                    : "Create a new broadcast to get your RTMP credentials."}
+                    : "Create a new broadcast to get your stream connection details."}
                 </p>
                 {!search && (
                   <Button size="sm" asChild className="btn-primary-flat h-9 text-xs">

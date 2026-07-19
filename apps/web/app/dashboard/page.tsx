@@ -107,11 +107,11 @@ export default function DashboardPage() {
 
             <div className="space-y-2">
               <h3 className="text-base sm:text-lg font-bold tracking-tight">
-                Active Transcoder Nodes
+                Your broadcast status
               </h3>
               <p className="text-xs text-muted-foreground max-w-lg leading-relaxed">
-                Connect OBS Studio, vMix, or Streamlabs with an RTMP key. The pipeline packages
-                HLS and serves viewers when you go live.
+                Connect OBS, Streamlabs, or similar apps with your stream key to go live.
+                Viewers can watch as soon as you start streaming.
               </p>
             </div>
           </div>
@@ -146,11 +146,11 @@ export default function DashboardPage() {
 
         <div className="supabase-panel p-4 sm:p-6 flex flex-col justify-between min-h-[220px] sm:min-h-[260px]">
           <div className="space-y-3 sm:space-y-4">
-            <span className="section-label font-mono">Stream Target</span>
+            <span className="section-label">Quick connection</span>
             <div className="space-y-2">
-              <h3 className="text-sm font-bold tracking-tight">Media Source Configuration</h3>
+              <h3 className="text-sm font-bold tracking-tight">Stream server</h3>
               <p className="text-xs text-muted-foreground leading-relaxed">
-                Use these values in your encoder settings. Keep the stream key private.
+                Paste these into your streaming app. Keep your stream key private.
               </p>
             </div>
           </div>
@@ -242,36 +242,42 @@ export default function DashboardPage() {
 
         <div className="supabase-panel p-4 sm:p-6 space-y-4 sm:space-y-5">
           <div className="space-y-1">
-            <h3 className="text-sm font-bold tracking-tight">Active Edge Transcoders</h3>
+            <h3 className="text-sm font-bold tracking-tight">Getting started</h3>
             <p className="text-xs text-muted-foreground">
-              Health status of ingest, packaging, and delivery nodes.
+              A quick checklist for your next live session.
             </p>
           </div>
 
           <div className="space-y-2 sm:space-y-2.5">
             {[
               {
-                label: "RTMP Edge Ingest",
-                status: "Online",
-                desc: "Port 1935 active",
+                label: "Stream connection",
+                status: "Ready",
+                desc: "Server URL available below",
                 color: GREEN,
               },
               {
-                label: "HLS Packager",
-                status: "Operational",
-                desc: "MinIO segment upload",
+                label: "Stream keys",
+                status: (keyCount ?? 0) > 0 ? "Set up" : "Needed",
+                desc:
+                  (keyCount ?? 0) > 0
+                    ? "You have keys ready to use"
+                    : "Create a key before going live",
+                color: (keyCount ?? 0) > 0 ? GREEN : AMBER,
+              },
+              {
+                label: "Video quality",
+                status: "Plan based",
+                desc: "Higher quality on Pro",
                 color: GREEN,
               },
               {
-                label: "Transcoder Engine",
-                status: "Online",
-                desc: "720p · 480p · 360p ladder",
-                color: GREEN,
-              },
-              {
-                label: "Live Delivery",
-                status: liveCount > 0 ? "Active" : "Idle",
-                desc: liveCount > 0 ? "Serving viewers" : "No stream inputs",
+                label: "Live now",
+                status: liveCount > 0 ? "On air" : "Offline",
+                desc:
+                  liveCount > 0
+                    ? "Viewers can watch you"
+                    : "Start a broadcast when ready",
                 color: liveCount > 0 ? GREEN : AMBER,
               },
             ].map((node) => (

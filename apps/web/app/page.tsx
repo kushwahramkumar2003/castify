@@ -12,6 +12,9 @@ import {
   RiShieldUserLine,
   RiHdLine,
   RiShareLine,
+  RiHeart3Line,
+  RiSparkling2Line,
+  RiGroupLine,
 } from "react-icons/ri";
 
 const GREEN = "#3ecf8e";
@@ -19,23 +22,41 @@ const GREEN = "#3ecf8e";
 const features = [
   {
     icon: RiLiveLine,
-    title: "Watch live, anywhere",
-    desc: "Discover live creators and jump into the stream in one tap. Adaptive quality keeps playback smooth on any connection.",
+    title: "Watch live, anytime",
+    desc: "Find creators who are live right now and join in a tap. Playback adjusts so it stays smooth on your phone or laptop.",
   },
   {
     icon: RiPlayCircleLine,
-    title: "Catch up later",
-    desc: "Missed it live? Open recordings from your Library and pick up where you left off.",
+    title: "Never miss a moment",
+    desc: "Couldn’t make it live? Open your Library later and rewatch full sessions whenever you want.",
   },
   {
     icon: RiShareLine,
-    title: "Join with a code",
-    desc: "Private shows use invite codes or links. Redeem once and you’re in — no tech setup for viewers.",
+    title: "Private shows, simple invites",
+    desc: "Friends-only streams use a short code or link. Redeem once — you’re in. No apps to install as a viewer.",
   },
   {
     icon: RiHdLine,
-    title: "Broadcast when you’re ready",
-    desc: "Creators get a simple Studio to go live, share invites, and manage quality — only when you need it.",
+    title: "Go live when inspiration hits",
+    desc: "Share a game night, a class, or a talk with people who care. Start a stream in minutes and invite who you want.",
+  },
+];
+
+const steps = [
+  {
+    n: "01",
+    title: "Create a free account",
+    desc: "One profile for watching, following, and (when you’re ready) going live.",
+  },
+  {
+    n: "02",
+    title: "Explore or join with a code",
+    desc: "Browse public lives, or enter an invite code for private sessions.",
+  },
+  {
+    n: "03",
+    title: "Follow & rewatch",
+    desc: "Keep creators close and catch recordings from your Library.",
   },
 ];
 
@@ -44,17 +65,21 @@ export default function Home() {
 
   return (
     <div className="relative min-h-[calc(100vh-3.5rem)]">
-      <div className="pointer-events-none fixed inset-0 bg-dot-grid opacity-60" aria-hidden />
       <div
-        className="pointer-events-none fixed top-0 left-1/2 -translate-x-1/2 w-[min(100%,720px)] h-[420px] rounded-full blur-3xl opacity-40"
+        className="pointer-events-none fixed inset-0 bg-dot-grid opacity-50"
+        aria-hidden
+      />
+      <div
+        className="pointer-events-none fixed top-0 left-1/2 -translate-x-1/2 w-[min(100%,820px)] h-[480px] rounded-full blur-3xl opacity-50"
         style={{
           background:
-            "radial-gradient(ellipse at center, rgba(62, 207, 142, 0.14) 0%, transparent 70%)",
+            "radial-gradient(ellipse at center, rgba(62, 207, 142, 0.16) 0%, rgba(25, 152, 213, 0.06) 45%, transparent 70%)",
         }}
         aria-hidden
       />
 
-      <section className="relative flex flex-col items-center text-center pt-10 sm:pt-16 md:pt-24 pb-12 sm:pb-16 space-y-5 sm:space-y-7 px-1">
+      {/* Hero */}
+      <section className="relative flex flex-col items-center text-center pt-10 sm:pt-16 md:pt-22 pb-12 sm:pb-16 space-y-5 sm:space-y-7 px-1">
         <div
           className="animate-fade-up inline-flex items-center gap-2 rounded-full px-3 sm:px-4 py-1.5 text-[10px] sm:text-xs font-semibold uppercase tracking-wider"
           style={{
@@ -64,8 +89,14 @@ export default function Home() {
           }}
         >
           <span className="relative flex size-2 shrink-0">
-            <span className="pulse-ring absolute inset-0 rounded-full" style={{ background: GREEN }} />
-            <span className="relative size-2 rounded-full" style={{ background: GREEN }} />
+            <span
+              className="pulse-ring absolute inset-0 rounded-full"
+              style={{ background: GREEN }}
+            />
+            <span
+              className="relative size-2 rounded-full"
+              style={{ background: GREEN }}
+            />
           </span>
           Live community streaming
         </div>
@@ -86,15 +117,20 @@ export default function Home() {
         </h1>
 
         <p className="animate-fade-up anim-delay-2 text-sm sm:text-base md:text-lg max-w-xl leading-relaxed text-muted-foreground px-2">
-          Castify is a place to follow live streams, join private sessions with a code, and
-          go live when you have something to share — all in one clean account.
+          Castify is where people gather for live shows — hang out with
+          creators, join private sessions with friends, and share your own
+          stream when you have something worth showing.
         </p>
 
         <div className="animate-fade-up anim-delay-3 flex flex-col xs:flex-row flex-wrap justify-center gap-2.5 sm:gap-3 pt-1 w-full max-w-md xs:max-w-none px-2">
           {!isLoading &&
             (user ? (
               <>
-                <Button size="lg" className="btn-primary-flat h-11 sm:h-12 px-6 text-sm gap-2" asChild>
+                <Button
+                  size="lg"
+                  className="btn-primary-flat h-11 sm:h-12 px-6 text-sm gap-2"
+                  asChild
+                >
                   <Link href="/explore">
                     Explore live <RiArrowRightLine className="size-4" />
                   </Link>
@@ -110,7 +146,11 @@ export default function Home() {
               </>
             ) : (
               <>
-                <Button size="lg" className="btn-primary-flat h-11 sm:h-12 px-6 text-sm gap-2" asChild>
+                <Button
+                  size="lg"
+                  className="btn-primary-flat h-11 sm:h-12 px-6 text-sm gap-2"
+                  asChild
+                >
                   <Link href="/signup">
                     Create free account <RiArrowRightLine className="size-4" />
                   </Link>
@@ -131,45 +171,51 @@ export default function Home() {
         </div>
 
         <div className="animate-fade-up anim-delay-4 flex flex-wrap justify-center gap-x-5 gap-y-2 pt-3 text-[10px] sm:text-xs font-medium text-muted-foreground">
-          {["Free to watch", "Invite codes for private shows", "Go live in minutes"].map(
-            (tag) => (
-              <span key={tag} className="flex items-center gap-1.5">
-                <span className="size-1.5 rounded-full shrink-0" style={{ background: GREEN }} />
-                {tag}
-              </span>
-            )
-          )}
+          {[
+            "Free to watch",
+            "Private invites for friends",
+            "Go live in minutes",
+          ].map((tag) => (
+            <span key={tag} className="flex items-center gap-1.5">
+              <span
+                className="size-1.5 rounded-full shrink-0"
+                style={{ background: GREEN }}
+              />
+              {tag}
+            </span>
+          ))}
         </div>
       </section>
 
+      {/* Audience paths */}
       <section className="pb-10 sm:pb-14">
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
           {[
             {
               icon: RiPlayCircleLine,
               title: "For viewers",
-              desc: "Browse live shows, follow creators, and redeem invites.",
+              desc: "Browse who’s live, follow your favorites, and join private shows with a code.",
               href: user ? "/explore" : "/signup",
               cta: "Start watching",
             },
             {
               icon: RiUserHeartLine,
               title: "Your library",
-              desc: "Recordings and streams you unlocked, all in one place.",
+              desc: "Streams and recordings you’ve unlocked — saved in one calm place.",
               href: user ? "/library" : "/login?next=/library",
               cta: "Open library",
             },
             {
               icon: RiTvLine,
               title: "For creators",
-              desc: "When you’re ready to broadcast, open Studio from your menu.",
+              desc: "Ready to share? Start a stream, invite your audience, and go live when you are.",
               href: user ? "/dashboard/streams/new" : "/signup",
-              cta: "Go live",
+              cta: "Start creating",
             },
           ].map((card) => (
             <div
               key={card.title}
-              className="supabase-panel p-5 sm:p-6 flex flex-col gap-3 text-left"
+              className="supabase-panel p-5 sm:p-6 flex flex-col gap-3 text-left hover:border-emerald-500/20 transition-colors"
             >
               <div className="flex size-10 items-center justify-center rounded-md bg-emerald-500/10 border border-emerald-500/25 text-emerald-400">
                 <card.icon className="size-5" />
@@ -178,7 +224,11 @@ export default function Home() {
               <p className="text-xs text-muted-foreground leading-relaxed flex-1">
                 {card.desc}
               </p>
-              <Button size="sm" className="btn-secondary-flat h-8 text-xs w-fit" asChild>
+              <Button
+                size="sm"
+                className="btn-secondary-flat h-8 text-xs w-fit"
+                asChild
+              >
                 <Link href={card.href}>
                   {card.cta} <RiArrowRightLine className="size-3.5" />
                 </Link>
@@ -188,22 +238,32 @@ export default function Home() {
         </div>
       </section>
 
+      {/* Why people use Castify */}
       <section className="py-10 sm:py-14 space-y-8">
         <div className="text-center space-y-2 px-1">
+          <p className="text-[10px] font-bold uppercase tracking-widest text-emerald-400/90">
+            Why Castify
+          </p>
           <h2 className="text-2xl sm:text-3xl font-extrabold tracking-tight">
-            Built around people, not infrastructure
+            Made for watching together
           </h2>
-          <p className="text-xs sm:text-sm max-w-lg mx-auto text-muted-foreground">
-            No ports, pipelines, or ops dashboards in your face — just watch, join, and create.
+          <p className="text-xs sm:text-sm max-w-lg mx-auto text-muted-foreground leading-relaxed">
+            Whether you’re dropping into a live room or hosting for a small
+            circle, everything stays simple — no clutter, no jargon.
           </p>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-5">
           {features.map((f) => (
-            <div key={f.title} className="supabase-panel p-5 sm:p-6 space-y-3">
+            <div
+              key={f.title}
+              className="supabase-panel p-5 sm:p-6 space-y-3 hover:border-white/10 transition-colors"
+            >
               <div className="inline-flex size-10 items-center justify-center rounded-md bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
                 <f.icon className="size-4" />
               </div>
-              <h3 className="font-bold text-base text-foreground/90">{f.title}</h3>
+              <h3 className="font-bold text-base text-foreground/90">
+                {f.title}
+              </h3>
               <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed">
                 {f.desc}
               </p>
@@ -212,23 +272,116 @@ export default function Home() {
         </div>
       </section>
 
+      {/* How it works */}
+      <section className="py-6 sm:py-10 pb-12 sm:pb-16">
+        <div className="text-center space-y-2 px-1 mb-8">
+          <h2 className="text-2xl sm:text-3xl font-extrabold tracking-tight">
+            Three steps to the fun
+          </h2>
+          <p className="text-xs sm:text-sm text-muted-foreground max-w-md mx-auto">
+            From first visit to your next favorite live — without the learning
+            curve.
+          </p>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
+          {steps.map((s) => (
+            <div
+              key={s.n}
+              className="supabase-panel p-5 sm:p-6 text-left space-y-3 relative overflow-hidden"
+            >
+              <span
+                className="text-3xl font-black tabular-nums opacity-[0.12] absolute top-3 right-4 select-none"
+                style={{ color: GREEN }}
+              >
+                {s.n}
+              </span>
+              <p className="text-[10px] font-bold uppercase tracking-wider text-emerald-400/80">
+                Step {s.n}
+              </p>
+              <h3 className="text-sm font-bold pr-10">{s.title}</h3>
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                {s.desc}
+              </p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* Social proof strip */}
+      <section className="pb-10 sm:pb-12">
+        <div className="grid grid-cols-1 xs:grid-cols-3 gap-3">
+          {[
+            {
+              icon: RiHeart3Line,
+              label: "For fans",
+              value: "Follow & rewatch",
+            },
+            {
+              icon: RiGroupLine,
+              label: "For friends",
+              value: "Private invite rooms",
+            },
+            {
+              icon: RiSparkling2Line,
+              label: "For creators",
+              value: "Go live your way",
+            },
+          ].map((s) => (
+            <div
+              key={s.label}
+              className="supabase-panel px-4 py-4 flex items-center gap-3"
+            >
+              <div className="flex size-9 shrink-0 items-center justify-center rounded-md bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
+                <s.icon className="size-4" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
+                  {s.label}
+                </p>
+                <p className="text-xs font-bold text-foreground/90 truncate">
+                  {s.value}
+                </p>
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* Privacy CTA */}
       <section className="pb-16">
-        <div className="supabase-panel p-6 sm:p-8 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+        <div className="supabase-panel p-6 sm:p-8 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-emerald-500/15">
           <div className="flex items-start gap-3">
             <div className="flex size-10 shrink-0 items-center justify-center rounded-md bg-emerald-500/10 border border-emerald-500/25 text-emerald-400">
               <RiShieldUserLine className="size-5" />
             </div>
             <div>
-              <h3 className="text-sm font-bold">Your account, your privacy</h3>
+              <h3 className="text-sm font-bold">One account. Your privacy.</h3>
               <p className="text-xs text-muted-foreground mt-1 max-w-md leading-relaxed">
-                Sign in once to watch and follow. Creator tools stay tucked away until you need
-                them.
+                Sign in once to watch and follow. Creator tools stay out of the
+                way until you choose to use them.
               </p>
             </div>
           </div>
           {!user && (
-            <Button size="sm" className="btn-primary-flat h-9 text-xs shrink-0" asChild>
-              <Link href="/signup">Join Castify</Link>
+            <Button
+              size="sm"
+              className="btn-primary-flat h-9 text-xs shrink-0 gap-1.5"
+              asChild
+            >
+              <Link href="/signup">
+                Join free <RiArrowRightLine className="size-3.5" />
+              </Link>
+            </Button>
+          )}
+          {user && (
+            <Button
+              size="sm"
+              className="btn-primary-flat h-9 text-xs shrink-0 gap-1.5"
+              asChild
+            >
+              <Link href="/explore">
+                Explore live <RiArrowRightLine className="size-3.5" />
+              </Link>
             </Button>
           )}
         </div>

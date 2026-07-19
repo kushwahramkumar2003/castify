@@ -34,7 +34,7 @@ export function UpgradeBanner({
           </p>
           <p className="text-[11px] text-muted-foreground leading-relaxed">
             {message ??
-              "2K/1080p ladder, more stream keys, concurrent lives, and priority features."}
+              "Higher video quality, more concurrent streams, and extra creator tools."}
           </p>
         </div>
       </div>

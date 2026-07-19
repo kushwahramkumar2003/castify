@@ -14,6 +14,7 @@ import {
   type PlanTier,
 } from "@/lib/api";
 import { openRazorpayCheckout } from "@/lib/razorpay-checkout";
+import { userFacingError } from "@/lib/user-facing-error";
 import { toast } from "sonner";
 import { PlanBadge } from "@/components/billing/plan-badge";
 import {
@@ -50,6 +51,25 @@ function formatDate(iso: string | null | undefined) {
   }
 }
 
+/** Friendly status for humans — no raw enum dumps */
+function statusLabel(status: string | undefined, plan: PlanTier): string {
+  if (!status) {
+    return plan === "FREE" ? "Free" : plan;
+  }
+  const map: Record<string, string> = {
+    CREATED: "Pending payment",
+    AUTHENTICATED: "Active",
+    ACTIVE: "Active",
+    PENDING: "Payment pending",
+    HALTED: "Paused",
+    PAUSED: "Paused",
+    CANCELLED: "Cancelled",
+    COMPLETED: "Ended",
+    EXPIRED: "Expired",
+  };
+  return map[status] ?? "Active";
+}
+
 export default function BillingPage() {
   const { user, refreshUser } = useAuth();
   const confirm = useConfirm();
@@ -58,7 +78,7 @@ export default function BillingPage() {
   const [currentPlan, setCurrentPlan] = useState<PlanTier>("FREE");
   const [subscription, setSubscription] =
     useState<BillingSubscriptionPublic | null>(null);
-  const [razorpayEnabled, setRazorpayEnabled] = useState(false);
+  const [checkoutAvailable, setCheckoutAvailable] = useState(true);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<"subscribe" | "cancel" | null>(null);
 
@@ -70,20 +90,26 @@ export default function BillingPage() {
         api.getBillingSubscription().catch(() => null),
       ]);
       setPlans(plansRes.data.plans);
-      setRazorpayEnabled(plansRes.data.razorpayEnabled);
+      const available =
+        plansRes.data.checkoutAvailable ??
+        (plansRes.data as { razorpayEnabled?: boolean }).razorpayEnabled ??
+        true;
+      setCheckoutAvailable(!!available);
       if (subRes?.data) {
         setCurrentPlan(subRes.data.plan);
         setSubscription(subRes.data.subscription);
-        setRazorpayEnabled(subRes.data.razorpayEnabled);
+        setCheckoutAvailable(
+          !!(
+            subRes.data.checkoutAvailable ??
+            (subRes.data as { razorpayEnabled?: boolean }).razorpayEnabled ??
+            available
+          )
+        );
       } else if (user?.plan) {
         setCurrentPlan(user.plan);
       }
-    } catch (err: unknown) {
-      toast.error(
-        err && typeof err === "object" && "message" in err
-          ? String((err as { message: string }).message)
-          : "Failed to load billing"
-      );
+    } catch {
+      toast.error("Could not load billing. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -99,9 +125,9 @@ export default function BillingPage() {
     subscription?.status === "AUTHENTICATED";
 
   const handleSubscribe = async () => {
-    if (!razorpayEnabled) {
+    if (!checkoutAvailable) {
       toast.error(
-        "Razorpay is not configured. Add test keys to auth-service env."
+        "Checkout is temporarily unavailable. Please try again later."
       );
       return;
     }
@@ -109,7 +135,7 @@ export default function BillingPage() {
     const ok = await confirm({
       title: "Upgrade to Pro Studio?",
       description:
-        "You will be charged monthly via Razorpay (test mode). Complete the secure Checkout to activate Pro quality ladder and features.",
+        "You will be charged monthly in INR. Complete secure checkout to unlock higher stream quality and Pro features.",
       confirmLabel: "Continue to payment",
       cancelLabel: "Not now",
       variant: "default",
@@ -131,7 +157,7 @@ export default function BillingPage() {
         modal: {
           confirm_close: true,
           ondismiss: () => {
-            toast.message("Checkout closed — subscription not activated");
+            toast.message("Checkout closed — your plan was not changed.");
             setBusy(null);
           },
         },
@@ -145,16 +171,17 @@ export default function BillingPage() {
             setCurrentPlan(verified.data.plan);
             toast.success(
               verified.data.plan === "PRO"
-                ? "Pro activated — enjoy the full quality ladder"
-                : "Payment received — plan will update shortly"
+                ? "Pro is active — enjoy higher quality streaming."
+                : "Payment received. Your plan will update shortly."
             );
             await refreshUser();
             await load();
           } catch (err: unknown) {
             toast.error(
-              err && typeof err === "object" && "message" in err
-                ? String((err as { message: string }).message)
-                : "Payment verification failed"
+              userFacingError(
+                err,
+                "We could not confirm your payment. Please try again or contact support."
+              )
             );
           } finally {
             setBusy(null);
@@ -163,9 +190,10 @@ export default function BillingPage() {
       });
     } catch (err: unknown) {
       toast.error(
-        err && typeof err === "object" && "message" in err
-          ? String((err as { message: string }).message)
-          : "Could not start checkout"
+        userFacingError(
+          err,
+          "We could not start checkout. Please try again later."
+        )
       );
       setBusy(null);
     }
@@ -175,7 +203,7 @@ export default function BillingPage() {
     const ok = await confirm({
       title: "Cancel Pro subscription?",
       description:
-        "Your plan stays Pro until the end of the current billing period (when applicable). You can resubscribe anytime.",
+        "Your plan stays Pro until the end of the current billing period when applicable. You can resubscribe anytime.",
       confirmLabel: "Cancel subscription",
       cancelLabel: "Keep Pro",
       variant: "destructive",
@@ -195,9 +223,10 @@ export default function BillingPage() {
       await load();
     } catch (err: unknown) {
       toast.error(
-        err && typeof err === "object" && "message" in err
-          ? String((err as { message: string }).message)
-          : "Cancel failed"
+        userFacingError(
+          err,
+          "We could not cancel right now. Please try again later."
+        )
       );
     } finally {
       setBusy(null);
@@ -217,7 +246,7 @@ export default function BillingPage() {
         title="Billing"
         description={
           <span className="inline-flex items-center gap-2 flex-wrap">
-            <span>Subscribe with Razorpay (test mode). Amounts in INR.</span>
+            <span>Manage your plan and subscription. Prices in INR.</span>
             <PlanBadge plan={currentPlan} size="xs" href={null} />
           </span>
         }
@@ -234,10 +263,10 @@ export default function BillingPage() {
           <div className="space-y-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
               <h3 className="text-sm font-bold tracking-tight text-foreground/90">
-                {planLabel} Subscription
+                {planLabel}
               </h3>
               <Badge className="text-[9px] font-bold tracking-wider px-2 py-0.5 rounded border bg-emerald-500/8 text-emerald-400 border-emerald-500/20">
-                {subscription?.status || currentPlan}
+                {statusLabel(subscription?.status, currentPlan)}
               </Badge>
               {subscription?.cancelAtPeriodEnd && (
                 <Badge className="text-[9px] font-bold tracking-wider px-2 py-0.5 rounded border bg-amber-500/10 text-amber-400 border-amber-500/25">
@@ -256,11 +285,11 @@ export default function BillingPage() {
                           ? ` · period ends ${formatDate(subscription?.currentEnd)}`
                           : ""
                       }.`
-                    : "Enterprise is managed offline."}
+                    : "Enterprise is managed with our team."}
             </p>
-            {!razorpayEnabled && !loading && (
-              <p className="text-[11px] text-amber-400/90 font-mono">
-                Razorpay keys not set on server — checkout disabled.
+            {!checkoutAvailable && !loading && currentPlan === "FREE" && (
+              <p className="text-[11px] text-muted-foreground">
+                Checkout is temporarily unavailable. Please try again later.
               </p>
             )}
           </div>
@@ -270,7 +299,7 @@ export default function BillingPage() {
             size="sm"
             className="btn-primary-flat shrink-0 px-4 h-9 gap-1.5 text-xs w-full sm:w-auto"
             onClick={handleSubscribe}
-            disabled={!!busy || loading || !razorpayEnabled}
+            disabled={!!busy || loading || !checkoutAvailable}
           >
             {busy === "subscribe" ? (
               <RiLoader4Line className="size-3.5 animate-spin" />
@@ -280,22 +309,24 @@ export default function BillingPage() {
             Upgrade to Pro
           </Button>
         )}
-        {isProActive && currentPlan === "PRO" && !subscription?.cancelAtPeriodEnd && (
-          <Button
-            size="sm"
-            variant="secondary"
-            className="btn-secondary-flat shrink-0 px-4 h-9 gap-1.5 text-xs w-full sm:w-auto"
-            onClick={handleCancel}
-            disabled={!!busy || loading}
-          >
-            {busy === "cancel" ? (
-              <RiLoader4Line className="size-3.5 animate-spin" />
-            ) : (
-              <RiCloseCircleLine className="size-3.5" />
-            )}
-            Cancel Pro
-          </Button>
-        )}
+        {isProActive &&
+          currentPlan === "PRO" &&
+          !subscription?.cancelAtPeriodEnd && (
+            <Button
+              size="sm"
+              variant="secondary"
+              className="btn-secondary-flat shrink-0 px-4 h-9 gap-1.5 text-xs w-full sm:w-auto"
+              onClick={handleCancel}
+              disabled={!!busy || loading}
+            >
+              {busy === "cancel" ? (
+                <RiLoader4Line className="size-3.5 animate-spin" />
+              ) : (
+                <RiCloseCircleLine className="size-3.5" />
+              )}
+              Cancel Pro
+            </Button>
+          )}
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-6">
@@ -387,7 +418,7 @@ export default function BillingPage() {
                   <Button
                     className="w-full gap-1.5 h-10 sm:h-9 text-xs btn-primary-flat"
                     onClick={handleSubscribe}
-                    disabled={!!busy || loading || !razorpayEnabled}
+                    disabled={!!busy || loading || !checkoutAvailable}
                   >
                     {busy === "subscribe" ? (
                       <RiLoader4Line className="size-4 animate-spin" />
@@ -423,7 +454,7 @@ export default function BillingPage() {
                     variant="secondary"
                     asChild
                   >
-                    <a href="mailto:sales@castify.local?subject=Castify%20Enterprise">
+                    <a href="mailto:hello@castify.dev?subject=Castify%20Enterprise">
                       Contact Us
                       <RiArrowRightLine className="size-4" />
                     </a>
@@ -439,7 +470,7 @@ export default function BillingPage() {
         <div className="flex items-center gap-2 border-b border-border/40 pb-3">
           <RiShieldLine className="size-4 text-emerald-400 shrink-0" />
           <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-            Payments (Razorpay)
+            Payment history
           </h3>
         </div>
 
@@ -448,17 +479,19 @@ export default function BillingPage() {
             {subscription.recentPayments.map((p) => (
               <li
                 key={p.id}
-                className="flex items-center justify-between gap-3 text-xs font-mono border border-border/50 rounded-md px-3 py-2"
+                className="flex items-center justify-between gap-3 text-xs border border-border/50 rounded-md px-3 py-2"
               >
-                <span className="truncate text-muted-foreground">
-                  {p.razorpayPaymentId}
+                <span className="text-muted-foreground">
+                  {formatDate(p.createdAt) ?? "—"}
                 </span>
-                <span className="text-foreground/90 shrink-0">
+                <span className="text-foreground/90 shrink-0 font-medium">
                   {(p.amountPaise / 100).toLocaleString("en-IN", {
                     style: "currency",
                     currency: p.currency || "INR",
-                  })}{" "}
-                  · {p.status}
+                  })}
+                  {p.status === "captured" || p.status === "paid"
+                    ? " · Paid"
+                    : ""}
                 </span>
               </li>
             ))}
@@ -471,8 +504,7 @@ export default function BillingPage() {
             <div className="space-y-1">
               <p className="text-sm font-semibold">No payments yet</p>
               <p className="text-xs text-muted-foreground max-w-xs leading-relaxed mx-auto">
-                Card details stay on Razorpay Checkout (PCI). We only store
-                payment ids after a successful charge.
+                After you upgrade, successful charges will show up here.
               </p>
             </div>
           </div>

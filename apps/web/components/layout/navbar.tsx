@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 import { useAuth } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useState, useRef, useEffect, useCallback } from "react";
 import {
   RiTvLine,
@@ -151,6 +151,9 @@ export function Navbar() {
                 }}
               >
                 <Avatar className="size-6 shrink-0">
+                  {user.avatarUrl && (
+                    <AvatarImage src={user.avatarUrl} alt={user.username} referrerPolicy="no-referrer" />
+                  )}
                   <AvatarFallback className="text-[10px] font-bold bg-[#1a1a1a] text-[#3ecf8e] rounded">
                     {initials}
                   </AvatarFallback>

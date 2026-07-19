@@ -8,7 +8,7 @@ import { api, type BrowseStreamCard, type PublicProfile } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { toast } from "sonner";
 import {
   RiUserAddLine,
@@ -144,6 +144,9 @@ function ProfileInner() {
       <div className="supabase-panel p-5 sm:p-6 space-y-4">
         <div className="flex flex-col sm:flex-row gap-4 sm:items-center">
           <Avatar className="size-16 rounded-lg border border-border shrink-0">
+            {profile.avatarUrl && (
+              <AvatarImage src={profile.avatarUrl} alt={profile.username} referrerPolicy="no-referrer" />
+            )}
             <AvatarFallback className="rounded-lg text-lg font-bold bg-[#1a1a1a] text-emerald-400">
               {initials}
             </AvatarFallback>
@@ -209,7 +212,7 @@ function ProfileInner() {
                     {s.title || "Untitled"}
                   </p>
                   <p className="text-[10px] text-muted-foreground font-mono mt-0.5">
-                    {(s.qualities || []).join(" · ") || "HLS"}
+                    {(s.qualities || []).join(" · ") || "Live"}
                   </p>
                 </div>
                 <Badge

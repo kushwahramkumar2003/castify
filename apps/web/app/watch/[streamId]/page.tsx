@@ -9,7 +9,7 @@ import { api, type BrowseStreamDetail } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { toast } from "sonner";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import {
@@ -374,6 +374,9 @@ function WatchInner() {
         <div className="supabase-panel p-4 sm:p-5 space-y-4">
           <div className="flex items-center gap-3 min-w-0">
             <Avatar className="size-11 rounded-md border border-border shrink-0">
+              {creator.avatarUrl && (
+                <AvatarImage src={creator.avatarUrl} alt={creator.username} referrerPolicy="no-referrer" />
+              )}
               <AvatarFallback className="rounded-md text-sm font-bold bg-[#1a1a1a] text-emerald-400">
                 {initials}
               </AvatarFallback>

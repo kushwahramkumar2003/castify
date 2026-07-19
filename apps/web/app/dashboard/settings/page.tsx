@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/dashboard/page-header";
@@ -162,6 +162,9 @@ export default function SettingsPage() {
 
             <div className="flex items-center gap-3 sm:gap-4">
               <Avatar className="size-12 sm:size-14 rounded-lg border border-border shrink-0">
+                {user.avatarUrl && (
+                  <AvatarImage src={user.avatarUrl} alt={user.username} referrerPolicy="no-referrer" />
+                )}
                 <AvatarFallback className="rounded-lg text-sm font-bold bg-[#1a1a1a] text-emerald-400">
                   {initials}
                 </AvatarFallback>

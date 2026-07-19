@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
 import {
   DropdownMenu,
@@ -232,6 +232,9 @@ export function DashboardSidebar({ collapsed, onToggle: _onToggle, mobile = fals
             )}
           >
               <Avatar className="size-7 shrink-0 rounded-md border border-border/50">
+                {user?.avatarUrl && (
+                  <AvatarImage src={user.avatarUrl} alt={user.username} referrerPolicy="no-referrer" />
+                )}
                 <AvatarFallback className="rounded-md text-xs font-bold bg-[#1a1a1a] text-emerald-400">
                   {initials}
                 </AvatarFallback>
@@ -259,6 +262,9 @@ export function DashboardSidebar({ collapsed, onToggle: _onToggle, mobile = fals
             <DropdownMenuLabel className="font-normal">
               <div className="flex items-center gap-2">
                 <Avatar className="size-7 rounded">
+                  {user?.avatarUrl && (
+                    <AvatarImage src={user.avatarUrl} alt={user.username} referrerPolicy="no-referrer" />
+                  )}
                   <AvatarFallback className="rounded text-[10px] font-bold bg-[#1a1a1a] text-emerald-400">
                     {initials}
                   </AvatarFallback>

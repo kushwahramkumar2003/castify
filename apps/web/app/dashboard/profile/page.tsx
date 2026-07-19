@@ -3,7 +3,7 @@
 import { useAuth } from "@/lib/auth";
 import { api } from "@/lib/api";
 import { useEffect, useState } from "react";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -79,6 +79,9 @@ export default function ProfilePage() {
         <div className="flex flex-col sm:flex-row gap-4 sm:gap-6 items-start">
           <div className="relative shrink-0">
             <Avatar className="size-14 sm:size-16 rounded-lg border border-border">
+              {user.avatarUrl && (
+                <AvatarImage src={user.avatarUrl} alt={user.username} referrerPolicy="no-referrer" />
+              )}
               <AvatarFallback className="text-lg sm:text-xl font-bold rounded-lg bg-[#1a1a1a] text-emerald-400">
                 {initials}
               </AvatarFallback>
@@ -227,6 +230,9 @@ function UserRow({ user }: { user: UserCard }) {
   return (
     <div className="flex items-center gap-2.5 rounded-md p-2 bg-[#1f1f1f]/20 border border-transparent hover:border-border/30 transition-all min-w-0">
       <Avatar className="size-8 rounded-md border border-border/50 shrink-0">
+        {user.avatarUrl && (
+          <AvatarImage src={user.avatarUrl} alt={user.username} referrerPolicy="no-referrer" />
+        )}
         <AvatarFallback className="text-[10px] font-bold rounded-md bg-[#1a1a1a] text-emerald-400">
           {initials}
         </AvatarFallback>

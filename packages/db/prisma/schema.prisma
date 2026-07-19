@@ -65,6 +65,19 @@ enum PlanTier {
   ENTERPRISE
 }
 
+/// Razorpay / Castify paid subscription lifecycle (not fan→streamer follow)
+enum BillingSubStatus {
+  CREATED
+  AUTHENTICATED
+  ACTIVE
+  PENDING
+  HALTED
+  PAUSED
+  CANCELLED
+  COMPLETED
+  EXPIRED
+}
+
 model User {
   id              String    @id @default(uuid()) @db.Uuid
   fullName        String?   @db.VarChar(100)
@@ -73,6 +86,8 @@ model User {
   passwordHash    String?   @db.VarChar(60)          // null = OAuth-only account
   emailVerifiedAt DateTime?
   plan            PlanTier  @default(FREE)
+  /// Razorpay customer id (cust_…) when billing is linked
+  razorpayCustomerId String? @db.VarChar(64)
   displayName     String?   @db.VarChar(50)
   avatarUrl       String?   @db.VarChar(500)
   bio             String?   @db.VarChar(300)
@@ -95,6 +110,7 @@ model User {
   oauthAccounts           OAuthAccount[]
   streamAccess            StreamAccess[]
   invitesCreated          StreamInvite[]           @relation("InviteCreator")
+  billingSubscriptions    BillingSubscription[]
 
   @@index([email])
   @@index([username])
@@ -383,4 +399,75 @@ model ChatTimeout {
   @@index([streamId, userId])
   @@index([expiresAt])
   @@map("chat_timeouts")
+}
+
+// =============================================================================
+// Billing (Razorpay Subscriptions) — creator plan tiers FREE / PRO / ENTERPRISE
+// Note: model `Subscription` above is fan→streamer follow, not payments.
+// =============================================================================
+
+model BillingPlan {
+  id             String   @id @default(uuid()) @db.Uuid
+  tier           PlanTier @unique
+  name           String   @db.VarChar(100)
+  amountPaise    Int
+  currency       String   @default("INR") @db.VarChar(3)
+  period         String   @default("monthly") @db.VarChar(20)
+  interval       Int      @default(1)
+  razorpayPlanId String   @unique @db.VarChar(64)
+  active         Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  subscriptions BillingSubscription[]
+
+  @@map("billing_plans")
+}
+
+model BillingSubscription {
+  id                     String           @id @default(uuid()) @db.Uuid
+  userId                 String           @db.Uuid
+  billingPlanId          String           @db.Uuid
+  tier                   PlanTier
+  status                 BillingSubStatus @default(CREATED)
+  razorpaySubscriptionId String           @unique @db.VarChar(64)
+  razorpayCustomerId     String?          @db.VarChar(64)
+  currentStart           DateTime?
+  currentEnd             DateTime?
+  cancelAtPeriodEnd      Boolean          @default(false)
+  rawLastPayload         Json?
+  createdAt              DateTime         @default(now())
+  updatedAt              DateTime         @updatedAt
+
+  user        User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  billingPlan BillingPlan      @relation(fields: [billingPlanId], references: [id], onDelete: Restrict)
+  payments    BillingPayment[]
+
+  @@index([userId, status])
+  @@index([status])
+  @@map("billing_subscriptions")
+}
+
+model BillingPayment {
+  id                    String   @id @default(uuid()) @db.Uuid
+  billingSubscriptionId String   @db.Uuid
+  razorpayPaymentId     String   @unique @db.VarChar(64)
+  amountPaise           Int
+  currency              String   @default("INR") @db.VarChar(3)
+  status                String   @db.VarChar(32)
+  createdAt             DateTime @default(now())
+
+  billingSubscription BillingSubscription @relation(fields: [billingSubscriptionId], references: [id], onDelete: Cascade)
+
+  @@index([billingSubscriptionId])
+  @@map("billing_payments")
+}
+
+model BillingWebhookEvent {
+  id          String   @id @default(uuid()) @db.Uuid
+  eventId     String   @unique @db.VarChar(64)
+  eventType   String   @db.VarChar(80)
+  processedAt DateTime @default(now())
+
+  @@map("billing_webhook_events")
 }

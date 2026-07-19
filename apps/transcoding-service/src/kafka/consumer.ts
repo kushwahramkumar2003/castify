@@ -26,8 +26,10 @@ import type { WorkerPool } from "../worker/workerPool.ts";
 let consumer: KafkaConsumer | null = null;
 
 export async function connectConsumer(pool: WorkerPool): Promise<void> {
+  // Unique clientId per process so multiple local instances are easy to spot
+  // in Kafka logs; shared groupId is what enables horizontal scale-out.
   consumer = new KafkaConsumer({
-    clientId: `${config.KAFKA_CLIENT_ID}-consumer`,
+    clientId: `${config.KAFKA_CLIENT_ID}-${config.INSTANCE_ID}`,
     brokers: config.KAFKA_BROKERS.split(",").map((b) => b.trim()),
     groupId: config.KAFKA_GROUP_ID,
   });

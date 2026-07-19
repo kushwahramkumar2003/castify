@@ -56,9 +56,11 @@ async function start(): Promise<void> {
   │  Qualities:   ${config.FFMPEG_QUALITIES.padEnd(41)}│
   │  Preset:      ${config.FFMPEG_PRESET.padEnd(41)}│
   │  Max streams: ${String(config.MAX_CONCURRENT_STREAMS).padEnd(41)}│
+  │  Kafka group: ${config.KAFKA_GROUP_ID.padEnd(41)}│
   │                                                             │
   │  Health:  http://localhost:${config.PORT}/health                    │
-  │  Waiting: Kafka stream.started events…                      │
+  │  Waiting: Kafka stream.started (1 stream = 1 instance)      │
+  │  Scale:   PORT=3003 INSTANCE_ID=ts-b bun run dev            │
   └─────────────────────────────────────────────────────────────┘
     `);
   });

@@ -6,6 +6,8 @@
   "private": true,
   "scripts": {
     "dev": "bun run --watch src/index.ts",
+    "dev:a": "PORT=3004 INSTANCE_ID=hp-a bun run --watch src/index.ts",
+    "dev:b": "PORT=3014 INSTANCE_ID=hp-b bun run --watch src/index.ts",
     "start": "bun run src/index.ts",
     "type-check": "tsc --noEmit"
   },

@@ -17,7 +17,7 @@ let producer: KafkaProducer | null = null;
 
 export async function connectProducer(): Promise<void> {
   producer = new KafkaProducer({
-    clientId: `${config.KAFKA_CLIENT_ID}-producer`,
+    clientId: `${config.KAFKA_CLIENT_ID}-producer-${config.INSTANCE_ID}`,
     brokers: config.KAFKA_BROKERS.split(",").map((b) => b.trim()),
     allowAutoTopicCreation: true,
   });

@@ -30,7 +30,9 @@ const env = z.object({
     .preprocess((v) => v === "true" || v === "1", z.boolean())
     .default(false),
 
-  MAX_CONCURRENT_UPLOADS: z.coerce.number().default(10),
+  // Raise when encoding many rungs (2k+1080p+…) or multiple streams — each
+  // segment is ~2s, so 5 qualities ≈ 2.5 uploads/s per live stream.
+  MAX_CONCURRENT_UPLOADS: z.coerce.number().default(24),
 });
 
 const parsed = env.safeParse(process.env);

@@ -8,7 +8,8 @@ let consumer: KafkaConsumer | null = null;
 
 export async function connectConsumer(): Promise<void> {
   consumer = new KafkaConsumer({
-    clientId: `${config.KAFKA_CLIENT_ID}-consumer`,
+    // Unique per process so multiple packagers scale cleanly in one group
+    clientId: `${config.KAFKA_CLIENT_ID}-${config.INSTANCE_ID}`,
     brokers: config.KAFKA_BROKERS.split(",").map((b) => b.trim()),
     groupId: config.KAFKA_GROUP_ID,
   });

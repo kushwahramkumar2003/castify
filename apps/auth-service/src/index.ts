@@ -4,11 +4,9 @@ import express from "express";
 import { config } from "./config";
 import { startStreamAutoEndJob } from "./jobs/streamAutoEnd";
 import routes from "./routes";
+import { razorpayWebhook } from "./controller/billing.controller";
 
 const app = express();
-
-// Allow ~6MB JSON for base64 thumbnails (plus form fields)
-app.use(express.json({ limit: "6mb" }));
 
 // ---------------------------------------------------------------------------
 // CORS — must run before body parsers so OPTIONS preflight never hits routes.
@@ -54,12 +52,36 @@ app.use(
       callback(null, false);
     },
     methods: ["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
+    allowedHeaders: [
+      "Content-Type",
+      "Authorization",
+      "X-Razorpay-Signature",
+    ],
     optionsSuccessStatus: 204,
   })
 );
 
 app.use(cookieParser());
+
+// Razorpay webhooks require the raw body for HMAC verification.
+// Mount BEFORE express.json() so the body is not pre-parsed.
+app.post(
+  "/api/v1/billing/webhooks/razorpay",
+  express.raw({ type: "application/json", limit: "1mb" }),
+  (req, _res, next) => {
+    // Normalize to string for signature helper
+    if (Buffer.isBuffer(req.body)) {
+      (req as express.Request & { body: string }).body = req.body.toString(
+        "utf8"
+      );
+    }
+    next();
+  },
+  razorpayWebhook
+);
+
+// Allow ~6MB JSON for base64 thumbnails (plus form fields)
+app.use(express.json({ limit: "6mb" }));
 
 app.use("/api/v1", routes);
 

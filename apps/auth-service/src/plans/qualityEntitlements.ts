@@ -16,7 +16,7 @@ export const qualityLabelSchema = z.enum(ALL_QUALITY_LABELS);
 export type PlanTier = "FREE" | "PRO" | "ENTERPRISE";
 
 /** Highest rung allowed (inclusive) per plan */
-const PLAN_MAX_QUALITY: Record<PlanTier, QualityLabel> = {
+export const PLAN_MAX_QUALITY: Record<PlanTier, QualityLabel> = {
   FREE: "720p",
   PRO: "2k",
   ENTERPRISE: "2k",
@@ -29,6 +29,52 @@ const QUALITY_RANK: Record<QualityLabel, number> = {
   "720p": 3,
   "480p": 2,
   "360p": 1,
+};
+
+const PLAN_RANK: Record<PlanTier, number> = {
+  FREE: 0,
+  PRO: 1,
+  ENTERPRISE: 2,
+};
+
+export type PlanLimits = {
+  maxQuality: QualityLabel;
+  allowedQualities: QualityLabel[];
+  /** Non-revoked stream keys across the account */
+  maxActiveStreamKeys: number;
+  /** Simultaneous isLive sessions */
+  maxConcurrentLive: number;
+  privateStreams: boolean;
+  advancedAnalytics: boolean;
+  inviteCodes: boolean;
+  label: string;
+};
+
+const PLAN_LIMITS: Record<PlanTier, Omit<PlanLimits, "allowedQualities" | "maxQuality">> = {
+  FREE: {
+    maxActiveStreamKeys: 1,
+    maxConcurrentLive: 1,
+    privateStreams: true,
+    advancedAnalytics: false,
+    inviteCodes: true,
+    label: "Free Node",
+  },
+  PRO: {
+    maxActiveStreamKeys: 5,
+    maxConcurrentLive: 5,
+    privateStreams: true,
+    advancedAnalytics: true,
+    inviteCodes: true,
+    label: "Pro Studio",
+  },
+  ENTERPRISE: {
+    maxActiveStreamKeys: 100,
+    maxConcurrentLive: 50,
+    privateStreams: true,
+    advancedAnalytics: true,
+    inviteCodes: true,
+    label: "Enterprise",
+  },
 };
 
 export function planAllowsQuality(plan: PlanTier, q: QualityLabel): boolean {
@@ -44,6 +90,19 @@ export function allowedQualitiesForPlan(plan: PlanTier): QualityLabel[] {
 export function normalizePlan(plan: string | null | undefined): PlanTier {
   if (plan === "PRO" || plan === "ENTERPRISE" || plan === "FREE") return plan;
   return "FREE";
+}
+
+export function planMeetsMinimum(plan: PlanTier, min: PlanTier): boolean {
+  return PLAN_RANK[plan] >= PLAN_RANK[min];
+}
+
+export function planLimits(plan: PlanTier): PlanLimits {
+  const base = PLAN_LIMITS[plan];
+  return {
+    ...base,
+    maxQuality: PLAN_MAX_QUALITY[plan],
+    allowedQualities: allowedQualitiesForPlan(plan),
+  };
 }
 
 /**
@@ -94,15 +153,21 @@ export function parseStreamQualities(
   return { ok: true, qualities };
 }
 
+/** Public payload for FE gating + billing UI */
 export function planPublicMeta(plan: PlanTier) {
+  const limits = planLimits(plan);
   return {
     plan,
-    maxQuality: PLAN_MAX_QUALITY[plan],
-    allowedQualities: allowedQualitiesForPlan(plan),
-    labels: {
-      FREE: "Free Node",
-      PRO: "Pro Studio",
-      ENTERPRISE: "Enterprise",
-    }[plan],
+    maxQuality: limits.maxQuality,
+    allowedQualities: limits.allowedQualities,
+    labels: limits.label,
+    maxActiveStreamKeys: limits.maxActiveStreamKeys,
+    maxConcurrentLive: limits.maxConcurrentLive,
+    privateStreams: limits.privateStreams,
+    advancedAnalytics: limits.advancedAnalytics,
+    inviteCodes: limits.inviteCodes,
+    premiumQualities: ALL_QUALITY_LABELS.filter(
+      (q) => !planAllowsQuality("FREE", q)
+    ),
   };
 }

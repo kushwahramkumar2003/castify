@@ -11,6 +11,12 @@ import type { Request, Response } from "express";
 import { randomBytes, randomUUID } from "node:crypto";
 import { z } from "zod";
 import { finalizeStream, isStreamEnded, markStreamOffline } from "../utils/stream.utils";
+import {
+  normalizePlan,
+  planAllowsQuality,
+  planLimits,
+  type QualityLabel,
+} from "../plans/qualityEntitlements";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -94,6 +100,32 @@ export const createStreamKey = asyncHandler(async (req: Request, res: Response) 
   }
 
   const userId = req.userId!;
+
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { plan: true },
+  });
+  const plan = normalizePlan(user?.plan);
+  const limits = planLimits(plan);
+
+  const activeKeyCount = await prisma.streamKey.count({
+    where: { userId, revokedAt: null },
+  });
+  if (activeKeyCount >= limits.maxActiveStreamKeys) {
+    return castifyError(
+      res,
+      `Your ${plan} plan allows ${limits.maxActiveStreamKeys} active stream key${
+        limits.maxActiveStreamKeys === 1 ? "" : "s"
+      }. Revoke an unused key or upgrade to Pro in Billing.`,
+      STATUS_CODE.FORBIDDEN,
+      {
+        code: ["PLAN_LIMIT_STREAM_KEYS"],
+        maxActiveStreamKeys: [String(limits.maxActiveStreamKeys)],
+        current: [String(activeKeyCount)],
+        requiredPlan: [plan === "FREE" ? "PRO" : "ENTERPRISE"],
+      }
+    );
+  }
 
   // Get the streamId from any existing key, or create a new stream row
   const existing = await prisma.streamKey.findFirst({
@@ -262,7 +294,7 @@ export const validateStreamKey = asyncHandler(async (req: Request, res: Response
   const keyRecord = await prisma.streamKey.findUnique({
     where: { key },
     include: {
-      user: { select: { username: true } },
+      user: { select: { username: true, plan: true } },
     },
   });
 
@@ -274,15 +306,45 @@ export const validateStreamKey = asyncHandler(async (req: Request, res: Response
     return castifyError(res, "Stream has ended — key is no longer valid", STATUS_CODE.UNAUTHORIZED);
   }
 
+  const plan = normalizePlan(keyRecord.user?.plan);
+  const limits = planLimits(plan);
+
+  // Concurrent live sessions (other streams already live for this user)
+  const otherLive = await prisma.stream.count({
+    where: {
+      userId: keyRecord.userId,
+      isLive: true,
+      id: { not: keyRecord.streamId },
+      endedAt: null,
+    },
+  });
+  if (otherLive >= limits.maxConcurrentLive) {
+    return castifyError(
+      res,
+      `Your ${plan} plan allows ${limits.maxConcurrentLive} concurrent live stream${
+        limits.maxConcurrentLive === 1 ? "" : "s"
+      }. End another broadcast or upgrade in Billing.`,
+      STATUS_CODE.FORBIDDEN
+    );
+  }
+
   const stream = await prisma.stream.findUnique({
     where: { id: keyRecord.streamId },
     select: { qualities: true },
   });
 
-  const qualities =
+  // Stream ladder from studio, clamped to current plan (PRO unlocks 1080p/2k).
+  // If the session has no qualities stored, use the full plan allow-list so
+  // Pro creators are not stuck on Free defaults after upgrading.
+  const rawQualities =
     stream?.qualities?.length
       ? stream.qualities
-      : ["720p", "480p"];
+      : limits.allowedQualities;
+  const qualities = rawQualities.filter((q) =>
+    planAllowsQuality(plan, q as QualityLabel)
+  );
+  const safeQualities =
+    qualities.length > 0 ? qualities : limits.allowedQualities.slice(0, 2);
 
   return castifyResponse(
     res,
@@ -291,7 +353,8 @@ export const validateStreamKey = asyncHandler(async (req: Request, res: Response
       userId: keyRecord.userId,
       streamId: keyRecord.streamId,
       username: keyRecord.user?.username,
-      qualities,
+      qualities: safeQualities,
+      plan,
     },
     STATUS_MSG.OK
   );
@@ -302,6 +365,36 @@ export const validateStreamKey = asyncHandler(async (req: Request, res: Response
 // ---------------------------------------------------------------------------
 export const startStreamInternal = asyncHandler(async (req: Request, res: Response) => {
   const streamId = req.params["streamId"] as string;
+
+  const stream = await prisma.stream.findUnique({
+    where: { id: streamId },
+    select: {
+      id: true,
+      userId: true,
+      user: { select: { plan: true } },
+    },
+  });
+  if (!stream) {
+    return castifyError(res, "Stream not found", STATUS_CODE.NOT_FOUND);
+  }
+
+  const plan = normalizePlan(stream.user?.plan);
+  const limits = planLimits(plan);
+  const otherLive = await prisma.stream.count({
+    where: {
+      userId: stream.userId,
+      isLive: true,
+      id: { not: streamId },
+      endedAt: null,
+    },
+  });
+  if (otherLive >= limits.maxConcurrentLive) {
+    return castifyError(
+      res,
+      `Plan limit: max ${limits.maxConcurrentLive} concurrent live stream(s) on ${plan}`,
+      STATUS_CODE.FORBIDDEN
+    );
+  }
 
   await prisma.stream.update({
     where: { id: streamId },
